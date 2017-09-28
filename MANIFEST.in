@@ -6,5 +6,6 @@ include README.rst
 recursive-include tests *
 recursive-exclude * __pycache__
 recursive-exclude * *.py[co]
+recursive-include django_wiki_forms *.html *.txt *.png *.js *.css *.gif *.less *.mo *.po *.otf *.svg *.woff *.woff2 *.eot *.ttf
 
 recursive-include docs *.rst conf.py Makefile make.bat *.jpg *.png *.gif

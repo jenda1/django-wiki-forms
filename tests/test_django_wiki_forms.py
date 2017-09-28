@@ -6,9 +6,6 @@
 import pytest
 
 
-from django_wiki_forms import django_wiki_forms
-
-
 @pytest.fixture
 def response():
     """Sample pytest fixture.
