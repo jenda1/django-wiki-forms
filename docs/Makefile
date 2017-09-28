@@ -85,17 +85,17 @@ qthelp:
 	@echo
 	@echo "Build finished; now you can run "qcollectiongenerator" with the" \
 	      ".qhcp project file in $(BUILDDIR)/qthelp, like this:"
-	@echo "# qcollectiongenerator $(BUILDDIR)/qthelp/django_wiki_input.qhcp"
+	@echo "# qcollectiongenerator $(BUILDDIR)/qthelp/django_wiki_forms.qhcp"
 	@echo "To view the help file:"
-	@echo "# assistant -collectionFile $(BUILDDIR)/qthelp/django_wiki_input.qhc"
+	@echo "# assistant -collectionFile $(BUILDDIR)/qthelp/django_wiki_forms.qhc"
 
 devhelp:
 	$(SPHINXBUILD) -b devhelp $(ALLSPHINXOPTS) $(BUILDDIR)/devhelp
 	@echo
 	@echo "Build finished."
 	@echo "To view the help file:"
-	@echo "# mkdir -p $$HOME/.local/share/devhelp/django_wiki_input"
-	@echo "# ln -s $(BUILDDIR)/devhelp $$HOME/.local/share/devhelp/django_wiki_input"
+	@echo "# mkdir -p $$HOME/.local/share/devhelp/django_wiki_forms"
+	@echo "# ln -s $(BUILDDIR)/devhelp $$HOME/.local/share/devhelp/django_wiki_forms"
 	@echo "# devhelp"
 
 epub:

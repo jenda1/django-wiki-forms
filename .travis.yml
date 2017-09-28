@@ -25,5 +25,5 @@ deploy:
     secure: PLEASE_REPLACE_ME
   on:
     tags: true
-    repo: jenda1/django_wiki_input
+    repo: jenda1/django_wiki_forms
     python: 2.7

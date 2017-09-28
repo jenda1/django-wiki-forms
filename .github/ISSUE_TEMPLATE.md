@@ -1,4 +1,4 @@
-* Django-wiki Input Plugin version:
+* Django-wiki Forms version:
 * Python version:
 * Operating System:
 

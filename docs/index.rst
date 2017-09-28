@@ -1,4 +1,4 @@
-Welcome to Django-wiki Input Plugin's documentation!
+Welcome to Django-wiki Forms's documentation!
 ======================================
 
 Contents:
@@ -11,6 +11,7 @@ Contents:
    usage
    modules
    contributing
+   authors
    history
 
 Indices and tables

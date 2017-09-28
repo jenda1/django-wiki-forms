@@ -2,7 +2,7 @@
 GNU GENERAL PUBLIC LICENSE
                       Version 3, 29 June 2007
 
-    The Input plugin allows to create forms in wiki pages.
+    Python django_wiki_forms contains plugin to create forms in the wiki pages.
     Copyright (C) 2017  Jan Lána
 
     This program is free software: you can redistribute it and/or modify

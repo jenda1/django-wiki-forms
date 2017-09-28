@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-"""Tests for `django_wiki_input` package."""
+"""Tests for `django_wiki_forms` package."""
 
 import pytest
 
 
-from django_wiki_input import django_wiki_input
+from django_wiki_forms import django_wiki_forms
 
 
 @pytest.fixture

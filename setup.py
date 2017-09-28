@@ -26,19 +26,19 @@ test_requirements = [
 ]
 
 setup(
-    name='django_wiki_input',
+    name='django_wiki_forms',
     version='0.1.0',
-    description="The Input plugin allows to create forms in wiki pages.",
+    description="Python django_wiki_forms contains plugin to create forms in the wiki pages.",
     long_description=readme + '\n\n' + history,
     author="Jan Lána",
     author_email='lana.jan@gmail.com',
-    url='https://github.com/jenda1/django_wiki_input',
-    packages=find_packages(include=['django_wiki_input']),
+    url='https://github.com/jenda1/django-wiki-forms',
+    packages=find_packages(include=['django_wiki_forms']),
     include_package_data=True,
     install_requires=requirements,
     license="GNU General Public License v3",
     zip_safe=False,
-    keywords='django_wiki_input',
+    keywords='django_wiki_forms',
     classifiers=[
         'Development Status :: 2 - Pre-Alpha',
         'Intended Audience :: Developers',

@@ -2,6 +2,6 @@
 Usage
 =====
 
-To use Django-wiki Input Plugin in a project::
+To use Django-wiki Forms in a project::
 
-    import django_wiki_input
+    import django_wiki_forms
