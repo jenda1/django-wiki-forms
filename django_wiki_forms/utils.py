@@ -1,8 +1,11 @@
 from __future__ import absolute_import, unicode_literals
 
-from pyparsing import Literal, Word, Combine, Group, Optional, ZeroOrMore, Forward, nums, alphas, delimitedList, QuotedString
 import re
 import os
+import operator
+import json
+from pyparsing import Literal, Word, Combine, Group, Optional, ZeroOrMore, Forward, nums, alphas, delimitedList, QuotedString
+from django.core.exceptions import PermissionDenied
 from . import models
 
 import logging
@@ -22,6 +25,103 @@ def parse_input(article, val):
         path = os.path.normpath(os.path.join(path, m.group('article')))
 
     return path.strip('/') + '/', m.group('field')
+
+
+
+opn = {"+": operator.add,
+       "-": operator.sub,
+       "*": operator.mul,
+       "/": operator.truediv,
+       }
+
+
+class DefEvaluate(object):
+    def __init__(self, idef, owner):
+        self.idef = idef
+        self.owner = owner
+        self.data = dict()
+        self.dataa = dict()
+        self.ts = idef.article.current_revision.created
+
+        expr = json.loads(idef.expr)
+        if self._initData(expr) is None:
+            return
+
+        i = models.Input.objects.filter(article=self.idef.article, key=self.idef.key, owner=owner).last()
+        if i and self.ts <= i.created:
+            # no update is needed, i is up-to-date
+            return
+
+        val = self._evaluateStack(expr)
+        val_json = json.dumps(val)
+
+        if i and i.val == val_json:
+            # no update is needed, new value is the same as the previous one
+            return
+
+        logger.warning("update {}".format(self.idef))
+        models.Input.objects.create(article=self.idef.article, key=self.idef.key, owner=owner, val=val_json, created=self.ts)
+
+
+    def _initData(self, s):
+        for op, val in s:
+            if op == 'var':
+                v = models.Input.objects.filter(
+                    article=self.idef.article if val[0] == -1 else val[0],
+                    key=val[1], owner=self.owner).last()
+                if not v:
+                    return
+
+                self.ts = self.ts if self.ts and self.ts >= v.created else v.created
+                self.data[str(val)] = json.loads(v.val)
+
+            elif op == 'vara':
+                out = dict()
+
+                for v in models.Input.objects.filter(
+                        article=self.idef.article if val[0] == -1 else val[0],
+                        key=val[1]):
+                    out[v.owner] = json.loads(v.val)
+                    self.ts = self.ts if self.ts and self.ts >= v.created else v.created
+
+                self.dataa[str(val)] = out
+
+        return True
+
+
+    def _evaluateStack(self, s):
+        op, val = s.pop()
+
+        if op == 'number':
+            return float(val)
+
+        elif op == 'string':
+            return str(val)
+
+        elif op == 'var':
+            return self.data[str(val)]
+
+        elif op == 'vara':
+            return self.dataa[str(val)]
+
+        elif op == 'op':
+            op2 = self._evaluateStack(s)
+            op1 = self._evaluateStack(s)
+
+            return opn[val](op1, op2)
+
+        elif op == 'fn':
+            n = self._evaluateStack(s)
+            assert n[0] == '#'
+
+            args = list()
+            for i in range(n):
+                args.insert(self._evaluateStack(s), 0)
+
+            return len(args)
+
+        else:
+            raise Exception
 
 
 
@@ -124,22 +224,7 @@ class DefVarStr(object):
         return str(self.getExprStack())
 
 
-def tryEval(article, key, owner, knownDeps=dict()):
-    df = models.InputDefinition.objects.filter(article=article, key=key).last()
 
-    if not df:
-        return
-
-    knownDeps[(article.pk, key)] = True
-
-    deps = df.inputdependency_set.all()
-    # if len(deps) == 0:
-    #    d = DefEvaluate(article, key, owner, json.loads(df.expr))
-    #    d.update()
-    #    return
-
-    for d in deps:
-        if (d.article.pk, d.key) in knownDeps:
-            continue
-
-        tryEval(d.article, d.key, owner, knownDeps)
+def get_allowed_channels(request, channels):
+    if not request.user.is_authenticated():
+        raise PermissionDenied('Not allowed to subscribe nor to publish on the Websocket!')

@@ -12,11 +12,12 @@ from django.utils import html
 from wiki.core.markdown import ArticleMarkdown
 
 from . import models
+from . import utils
+from . import tasks
 
 import logging
 import json
-
-from . import utils
+import ipdb
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +32,8 @@ class InputDataView(ArticleMixin, LoginRequiredMixin, View):
         if not self.article.can_read(request.user):
             return HttpResponse(status=403)
 
-        # FIXME: check the article has 'get-all' of the field
-        # FIXME: add check that get-all is added to articles that author owns
-        # if 'all' in request.GET and not self.article.can_write(request.user):
-        #     return HttpResponse(status=403)
-
         q = models.Input.objects.filter(article=self.article, key=input_name)
+        idef = models.InputDefinition.objects.filter(article=self.article, key=input_name).last()
 
         if 'all' in request.GET:
             out = dict({'titles': ['Username', input_name], 'values': list()})
@@ -45,14 +42,21 @@ class InputDataView(ArticleMixin, LoginRequiredMixin, View):
                 if v:
                     v_json = json.loads(v.val)
                     out['values'].append((o['owner__username'], html.escape(v_json)))
-        else:
-            out = q.filter(owner=request.user).last()
-            if out:
-                out = json.loads(out.val)
-            else:
-                utils.tryEval(self.article, input_name, request.user)
+                elif idef:
+                    tasks.evaluate_init(idef.pk, request.user.pk)
 
-        return JsonResponse(out, safe=False) if out else HttpResponse(status=204)
+        else:
+            v = q.filter(owner=request.user).last()
+            if v:
+                out = json.loads(v.val)
+            else:
+                if idef:
+                    ipdb.set_trace()
+                    tasks.evaluate_init(idef.pk, request.user.pk)
+
+                return HttpResponse(status=204)
+
+        return JsonResponse(out, safe=False)
 
 
     def post(self, request, input_name, *args, **kwargs):

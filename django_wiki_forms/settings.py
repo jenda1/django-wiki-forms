@@ -13,3 +13,6 @@ INPUTS = getattr(
      'files',
      'textarea',
      ))
+
+
+BROKER_URL = getattr(django_settings, 'CELERY_BROKER_URL', None)

@@ -1,6 +1,5 @@
 from __future__ import absolute_import, unicode_literals
 
-import os
 from django.utils.translation import ugettext as _
 from wiki.core.plugins import registry
 from wiki.core.plugins.base import BasePlugin
@@ -9,7 +8,8 @@ from .mdx.input import InputExtension
 from .mdx.defs import DefExtension
 from django.conf.urls import url
 
-from celery import Celery
+import logging
+logger = logging.getLogger(__name__)
 
 
 
@@ -43,13 +43,8 @@ class InputsPlugin(BasePlugin):
     html_attributes = {
         'input': ['data-url', 'class', 'id', 'type', 'disabled', 'multiple'],
         'textarea': ['data-url', 'class', 'id', 'type', 'disabled', 'multiple'],
+        'span': ['data-url', 'data-variant', 'class', 'id'],
     }
 
-
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'django-wiki.settings')
-
-app = Celery('django-wiki')
-app.config_from_object('django.conf:settings', namespace='CELERY')
-app.autodiscover_tasks()
 
 registry.register(InputsPlugin)

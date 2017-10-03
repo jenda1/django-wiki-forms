@@ -13,7 +13,7 @@ from wiki.core.compat import get_user_model
 import json
 import logging
 
-from . import utils
+from . import tasks
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ class InputDefinition(models.Model):
         unique_together = ('article', 'key')
 
     def __str__(self):
-        return '{}:{} {}'.format(self.article, self.key, self.expr)
+        return '{}:{}'.format(self.article, self.key)
 
 
 class InputDependency(models.Model):
@@ -86,36 +86,35 @@ def post_article_revision_save(**kwargs):
 
     old = InputDefinition.objects.filter(article=arev.article).exclude(key__in=md.defs)
     if old.exists():
-        logger.warning("{}: delete definition of {}".format(arev.article, [str(o) for o in old]))
+        logger.warning("delete definition(s) {}: {}".format(arev.article, [str(o) for o in old]))
         old.delete()
 
     for key, val in md.defs.items():
         expr = val.getExprStack()
         expr_json = json.dumps(expr)
 
-        q = InputDefinition.objects.filter(article=arev.article, key=key).last()
-        if q:
-            if q.expr == expr_json:
+        idef = InputDefinition.objects.filter(article=arev.article, key=key).last()
+        if idef:
+            if idef.expr == expr_json:
                 continue
             else:
-                q.delete()
+                idef.delete()
 
-        q = InputDefinition.objects.create(article=arev.article, key=key, expr=expr_json)
-        logger.warning("{}: update definition of {}".format(arev.article, q))
+        idef = InputDefinition.objects.create(article=arev.article, key=key, expr=expr_json)
+        logger.warning("create/update definition {}".format(idef))
 
         for op, val in expr:
             if op in ['var', 'vara']:
                 article = arev.article if val[0] == -1 else wiki_models.Article.objects.get(pk=val[0])
 
                 InputDependency.objects.create(
-                    definition=q,
+                    definition=idef,
                     article=article,
                     key=val[1],
                     per_owner=True if op == 'var' else False)
 
         for i in Input.objects.filter(article=arev.article, key=key):
-            d = utils.DefEvaluate(i.article, i.key, i.owner, expr)
-            d.update()
+            tasks.evaluate.delay(idef.pk, i.owner.pk)
 
 
 
@@ -123,21 +122,12 @@ def post_article_revision_save(**kwargs):
 def post_input_save(**kwargs):
     i = kwargs['instance']
 
-    for d in InputDependency.objects.filter(article=i.article, key=i.key):
-        article = d.definition.article
-        key = d.definition.key
-
-        logger.warning("{}: update {}:{}".format(i.article, article, key))
-
-        if d.per_owner:
-            o = utils.DefEvaluate(article, key, i.owner, json.loads(d.definition.expr))
-            o.update()
+    for idef in InputDependency.objects.filter(article=i.article, key=i.key):
+        if idef.per_owner:
+            tasks.evaluate.delay(idef.pk, i.owner.pk)
         else:
-            for uid in Input.objects.filter(article=article, key=key).values('owner').distinct():
-                u = User.objects.get(pk=uid)
-
-                o = utils.DefEvaluate(article, key, u, json.loads(d.definition.expr))
-                o.update()
+            for uid in Input.objects.filter(article=idef.article, key=idef.key).values('owner').distinct():
+                tasks.evaluate.delay(idef.pk, uid)
 
 
 signals.post_save.connect(post_article_revision_save, wiki_models.ArticleRevision)
