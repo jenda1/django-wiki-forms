@@ -26,7 +26,7 @@ def evaluate_init(idef_pk, owner_pk):
     owner = User.objects.get(pk=owner_pk)
     logger.warning("evaluate init {} (@{})".format(idef, owner))
 
-    todo = [idef,]
+    todo = [idef, ]
     done = list()
 
     while todo:

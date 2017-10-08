@@ -8,11 +8,11 @@ INPUTS = getattr(
     django_settings,
     'WIKI_PLUGINS_INPUTS',
     ('text', 'text_inline',
-     'password', 'password_inline',
+     'hidden', 'hidden_inline',
      'file',
      'files',
      'textarea',
      ))
 
-
-BROKER_URL = getattr(django_settings, 'CELERY_BROKER_URL', None)
+# CELERY
+CELERY_BROKER_URL = getattr(django_settings, 'CELERY_BROKER_URL', None)

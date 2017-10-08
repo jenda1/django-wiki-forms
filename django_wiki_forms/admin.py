@@ -6,10 +6,10 @@ from . import models
 
 
 class InputAdmin(admin.ModelAdmin):
-    list_display = ('pk', 'article', 'owner', 'key', 'created')
+    list_display = ('pk', 'article', 'owner', 'name', 'created')
 
 class InputDefinitionAdmin(admin.ModelAdmin):
-    list_display = ('pk', 'article', 'key')
+    list_display = ('pk', 'article', 'name')
 
 
 admin.site.register(models.Input, InputAdmin)

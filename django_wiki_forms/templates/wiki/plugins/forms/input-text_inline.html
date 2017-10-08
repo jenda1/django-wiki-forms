@@ -3,6 +3,6 @@
 {% else %}
 <input class="form-control dw-input dw-input-inline"
        type="{{ variant }}"
-       data-url="{% url 'wiki:input_data' input_name=name article_id=article.id %}"
+       data-id="{{ input_id }}"
        disabled />
 {% endif %}

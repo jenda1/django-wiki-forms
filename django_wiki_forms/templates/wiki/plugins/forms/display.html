@@ -1,0 +1,6 @@
+<span class="dw-forms"
+      {% if not preview %}
+      data-id="{{ display_id }}"
+      {% endif %}
+      data-listen="{% for f in fields %}{{f.article_pk}}:{{f.name}}{% if variant == 'all' %}:{% else %}:USER_ID{% endif %},{% endfor %}"
+      ><i class="fa fa-spinner fa-spin" style="font-size:24px"></i></span>

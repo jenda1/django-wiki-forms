@@ -3,7 +3,7 @@
 {% else %}
 <input class="form-control dw-input"
        type="file"
-       data-url="{% url 'wiki:input_data' input_name=name article_id=article.id %}"
+       data-id="{{ input_id }}"
        disabled
        multiple />
 {% endif %}

@@ -1,0 +1,20 @@
+<table class="table table-condensed">
+  <thead>
+    <tr>
+      <th>User</th>
+      {% for a,f in fields %}
+      <th>{{ f }}</th>
+      {% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for u,ds in data.items %}
+    <tr>
+      <th>{{ u }}</th>
+      {% for d in ds %}
+      <td>{{ d }}</td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>

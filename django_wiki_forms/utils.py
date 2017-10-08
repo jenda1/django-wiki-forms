@@ -1,7 +1,5 @@
 from __future__ import absolute_import, unicode_literals
 
-import re
-import os
 import operator
 import json
 from pyparsing import Literal, Word, Combine, Group, Optional, ZeroOrMore, Forward, nums, alphas, delimitedList, QuotedString
@@ -11,20 +9,20 @@ from . import models
 import logging
 logger = logging.getLogger(__name__)
 
-FIELD_RE = re.compile(
-    r'\s*((?P<article>[-a-z0-9_./]+)/)?(?P<field>\w+?)\s*$'
-)
+# FIELD_RE = re.compile(
+#    r'\s*((?P<article>[-a-z0-9_./]+)/)?(?P<field>\w+?)\s*$'
+# )
 
-def parse_input(article, val):
-    m = FIELD_RE.match(val)
-    if not m:
-        return None
-
-    path = article.get_absolute_url()
-    if m.group('article'):
-        path = os.path.normpath(os.path.join(path, m.group('article')))
-
-    return path.strip('/') + '/', m.group('field')
+# def parse_input(article, val):
+#    m = FIELD_RE.match(val)
+#    if not m:
+#        return None
+#
+#    path = article.get_absolute_url()
+#    if m.group('article'):
+#        path = os.path.normpath(os.path.join(path, m.group('article')))
+#
+#    return path.strip('/') + '/', m.group('field')
 
 
 
@@ -47,7 +45,7 @@ class DefEvaluate(object):
         if self._initData(expr) is None:
             return
 
-        i = models.Input.objects.filter(article=self.idef.article, key=self.idef.key, owner=owner).last()
+        i = models.Input.objects.filter(article=self.idef.article, name=self.idef.name, owner=owner).last()
         if i and self.ts <= i.created:
             # no update is needed, i is up-to-date
             return
@@ -60,7 +58,7 @@ class DefEvaluate(object):
             return
 
         logger.warning("update {}".format(self.idef))
-        models.Input.objects.create(article=self.idef.article, key=self.idef.key, owner=owner, val=val_json, created=self.ts)
+        models.Input.objects.create(article=self.idef.article, name=self.idef.name, owner=owner, val=val_json, created=self.ts)
 
 
     def _initData(self, s):
@@ -68,7 +66,7 @@ class DefEvaluate(object):
             if op == 'var':
                 v = models.Input.objects.filter(
                     article=self.idef.article if val[0] == -1 else val[0],
-                    key=val[1], owner=self.owner).last()
+                    name=val[1], owner=self.owner).last()
                 if not v:
                     return
 
@@ -80,7 +78,7 @@ class DefEvaluate(object):
 
                 for v in models.Input.objects.filter(
                         article=self.idef.article if val[0] == -1 else val[0],
-                        key=val[1]):
+                        name=val[1]):
                     out[v.owner] = json.loads(v.val)
                     self.ts = self.ts if self.ts and self.ts >= v.created else v.created
 
@@ -173,9 +171,9 @@ class DefVarExpr(object):
         if op in ['var', 'vara']:
             arr = args[0].asList()
             article_pk = arr[0] if len(arr) == 2 else -1
-            key = arr[1] if len(arr) == 2 else arr[0]
+            name = arr[1] if len(arr) == 2 else arr[0]
 
-            self.exprStack.append((op, (article_pk, key)))
+            self.exprStack.append((op, (article_pk, name)))
 
         elif op == 'number':
             self.exprStack.append((op, float(args[0])))

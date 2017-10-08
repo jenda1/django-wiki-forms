@@ -1,0 +1,10 @@
+{% load i18n sekizai_tags static %}
+  <li class="divider notification-before-list">1</li>
+{% addtoblock "js" %}
+<script type="text/javascript">
+  var WEBSOCKET_URI="{{ WEBSOCKET_URI }}";
+  var WS4REDIS_HEARTBEAT={{ WS4REDIS_HEARTBEAT }};
+  var ARTICLE_ID="{{ article.pk }}";
+  var USER_ID="{{ request.user.pk }}";
+</script>
+{% endaddtoblock %}

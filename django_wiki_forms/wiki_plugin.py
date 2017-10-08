@@ -6,6 +6,7 @@ from wiki.core.plugins.base import BasePlugin
 from . import settings, views
 from .mdx.input import InputExtension
 from .mdx.defs import DefExtension
+from .mdx.display import DisplayExtension
 from django.conf.urls import url
 
 import logging
@@ -18,32 +19,33 @@ class InputsPlugin(BasePlugin):
     slug = settings.SLUG
 
     urlpatterns = {'article': [
-        url(r'(?P<input_name>.*)$', views.InputDataView.as_view(), name='input_data'),
+        url(r'input/(?P<input_id>\d*)$', views.InputDataView.as_view(), name='forms-input'),
+        url(r'display/(?P<display_id>\d*)$', views.DisplayDataView.as_view(), name='forms-display'),
     ]}
 
     sidebar = {'headline': _('Inputs'),
                'icon_class': 'fa-pencil-square-o',
-               'template': 'wiki/plugins/inputs/sidebar.html',
+               'template': 'wiki/plugins/forms/sidebar.html',
                'form_class': None,
                'get_form_kwargs': (lambda a: {})}
 
     class RenderMedia:
         js = [
-            'wiki/plugins/forms/inputs.js',
-            'wiki/js/jsrender.min.js',
+            'wiki/js/dw-forms.js',
+            'wiki/js/ws4redis.js',
         ]
 
         css = {
-            'screen': 'wiki/css/inputs.css',
+            'all': 'wiki/css/dw-forms.css',
         }
 
-    markdown_extensions = [InputExtension(), DefExtension()]
+    markdown_extensions = [InputExtension(), DisplayExtension(), DefExtension()]
 
     html_whitelist = ['input', 'textarea']
     html_attributes = {
-        'input': ['data-url', 'class', 'id', 'type', 'disabled', 'multiple'],
-        'textarea': ['data-url', 'class', 'id', 'type', 'disabled', 'multiple'],
-        'span': ['data-url', 'data-variant', 'class', 'id'],
+        'input': ['data-id', 'class', 'id', 'type', 'disabled', 'multiple'],
+        'textarea': ['data-id', 'class', 'id', 'type', 'disabled', 'multiple'],
+        'span': ['data-id', 'data-listen', 'class', 'id'],
     }
 
 
