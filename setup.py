@@ -3,7 +3,7 @@
 
 """The setup script."""
 
-from setuptools import setup, find_packages
+from setuptools import setup
 
 with open('README.rst') as readme_file:
     readme = readme_file.read()
@@ -15,6 +15,7 @@ requirements = [
     'wiki',
     'celery[redis]',
     'django-websocket-redis',
+    'pyparsing'
 ]
 
 setup_requirements = [
@@ -35,7 +36,7 @@ setup(
     author="Jan Lána",
     author_email='lana.jan@gmail.com',
     url='https://github.com/jenda1/django-wiki-forms',
-    packages=find_packages(include=['django_wiki_forms']),
+    packages=['django_wiki_forms', 'django_wiki_forms.mdx', 'django_wiki_forms.migrations'],
     include_package_data=True,
     install_requires=requirements,
     license="GNU General Public License v3",
