@@ -9,7 +9,6 @@ from wiki.decorators import get_article
 from django.http import HttpResponse, JsonResponse
 from django.contrib.auth.mixins import LoginRequiredMixin
 from wiki.core.markdown import ArticleMarkdown
-from collections import defaultdict
 from django.shortcuts import render
 
 
@@ -19,7 +18,6 @@ from . import tasks
 import logging
 import json
 import re
-import ipdb
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +111,7 @@ class DisplayDataView(ArticleMixin, LoginRequiredMixin, View):
         elif variant == 'all':
             data = dict()
 
-            for i,f in enumerate(fields):
+            for i, f in enumerate(fields):
                 q = models.Input.objects.filter(
                     article__pk=f['article_pk'],
                     name=f['name'])
@@ -122,7 +120,7 @@ class DisplayDataView(ArticleMixin, LoginRequiredMixin, View):
                     v = q.filter(owner__pk=o['owner__pk']).last()
                     if v:
                         if o["owner__first_name"] and o['owner__last_name']:
-                            uname = "{} {}".format(o["owner__first_name"],o['owner__last_name'])
+                            uname = "{} {}".format(o["owner__first_name"], o['owner__last_name'])
                         else:
                             uname = o["owner__username"]
 
@@ -139,7 +137,7 @@ class DisplayDataView(ArticleMixin, LoginRequiredMixin, View):
                             tasks.evaluate_init(idef.pk, request.user.pk)
 
         c = dict(
-            fields=[(f['article_pk'],f['name']) for f in fields],
+            fields=[(f['article_pk'], f['name']) for f in fields],
             data=data)
 
         return render(request,

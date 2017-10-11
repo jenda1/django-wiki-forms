@@ -5,7 +5,6 @@ import re
 import markdown
 from django.template.loader import render_to_string
 # from django.utils.translation import ugettext as _
-import ipdb
 
 MACRO_RE = re.compile(
     r'(?P<prefix>.*?)\[\s*display(-(?P<variant>\w+))?\s*(?P<kwargs>.*?)\s*\](?P<suffix>.*)$',

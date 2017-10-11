@@ -8,13 +8,12 @@ from wiki.core.markdown import ArticleMarkdown
 from django.utils.translation import ugettext_lazy as _
 from wiki.models.pluginbase import ArticlePlugin
 from wiki.core import compat
-from wiki.core.compat import get_user_model
+from django.contrib.auth import get_user_model
 from ws4redis.publisher import RedisPublisher
 from ws4redis.redis_store import RedisMessage
 
 import json
 import logging
-import ipdb
 from . import tasks
 
 logger = logging.getLogger(__name__)
