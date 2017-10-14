@@ -48,12 +48,9 @@ class InputDataView(ArticleMixin, LoginRequiredMixin, View):
             logger.warning('broken get request: {}'.format(e))
             return HttpResponse(status=400)
 
-        if val:
-            return JsonResponse({
-                'val': json.loads(val.val),
-                'locked': self.article.current_revision.locked}, safe=False)
-        else:
-            return HttpResponse(status=204)
+        return JsonResponse({
+            'val': json.loads(val.val) if val else "",
+            'locked': self.article.current_revision.locked}, safe=False)
 
 
     def post(self, request, input_id, *args, **kwargs):
@@ -105,8 +102,7 @@ class DisplayDataView(ArticleMixin, LoginRequiredMixin, View):
                 name=fields[0]['name'],
                 owner=request.user).last()
 
-            if v:
-                data = json.loads(v.val)
+            data = json.loads(v.val) if v else ""
 
         elif variant == 'all':
             data = dict()

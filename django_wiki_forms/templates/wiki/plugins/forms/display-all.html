@@ -12,7 +12,7 @@
     <tr>
       <th>{{ u }}</th>
       {% for d in ds %}
-      <td>{{ d }}</td>
+      <td><samp>{{ d|linebreaks }}</samp></td>
       {% endfor %}
     </tr>
     {% endfor %}

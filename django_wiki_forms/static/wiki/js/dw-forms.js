@@ -155,7 +155,10 @@ $(document).ready(function() {
   $('textarea[data-id].dw-input').each(function(i,e) {
     wiki_input_get_data($(e), function(data){
       $(e).val(data.val);
-      $(e).prop('disabled', false);
+
+      if (!data.locked) {
+        $(e).prop('disabled', false);
+      }
     })
   })
 
