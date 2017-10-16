@@ -2,8 +2,8 @@
   <thead>
     <tr>
       <th>User</th>
-      {% for a,f in fields %}
-      <th>{{ f }}</th>
+      {% for n in columns %}
+      <th>{{ n }}</th>
       {% endfor %}
     </tr>
   </thead>
@@ -12,7 +12,7 @@
     <tr>
       <th>{{ u }}</th>
       {% for d in ds %}
-      <td><samp>{{ d|linebreaks }}</samp></td>
+      <td>{% include "wiki/plugins/forms/display-default.html" with value=d %}</td>
       {% endfor %}
     </tr>
     {% endfor %}

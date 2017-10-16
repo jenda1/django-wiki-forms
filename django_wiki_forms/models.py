@@ -2,6 +2,7 @@ from __future__ import absolute_import, unicode_literals
 
 from django.db.models import signals
 from django.db import models
+from django.core.exceptions import ValidationError
 from wiki import models as wiki_models
 from wiki.decorators import disable_signal_for_loaddata
 from wiki.core.markdown import ArticleMarkdown
@@ -33,11 +34,23 @@ class Input(ArticlePlugin):
     name = models.CharField(max_length=28)
     val = models.TextField()
 
+    newer = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL)
+
     def can_write(self, user):
         return user.pk == self.owner.pk  # FIXME: !!!
 
     def can_delete(self, user):
         return False
+
+    def validate_unique(self, exclude=None):
+        if Input.objects.exclude(id=self.id).filter(
+                article=self.article,
+                owner=self.owner,
+                name=self.name,
+                newer=self.newer).exists():
+            raise ValidationError("duplicate Input")
+        super(Input, self).validate_unique(exclude)
+
 
     class Meta:
         verbose_name = _('Input')
@@ -45,7 +58,7 @@ class Input(ArticlePlugin):
         get_latest_by = 'created'
 
     def __str__(self):
-        return _('{}: {}').format(self.name, (self.val[:75] + '..') if len(self.val) > 75 else self.val)
+        return _('{}{}:{}: {}').format("" if self.newer is None else "#", self.owner, self.name, (self.val[:75] + '..') if len(self.val) > 75 else self.val)
 
 
 class InputDefinition(models.Model):
@@ -116,7 +129,6 @@ def post_article_revision_save(**kwargs):
 
         for i in Input.objects.filter(article=arev.article, name=name):
             tasks.evaluate.delay(idef.pk, i.owner.pk)
-
 
 
 @disable_signal_for_loaddata

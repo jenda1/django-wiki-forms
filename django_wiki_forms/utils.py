@@ -140,6 +140,7 @@ plus = Literal("+")
 minus = Literal("-")
 mult = Literal("*")
 div = Literal("/")
+dot = Literal(".").suppress()
 lpar = Literal("(").suppress()
 rpar = Literal(")").suppress()
 addop = (plus | minus).setResultsName('op')
@@ -156,9 +157,8 @@ fnumber = Combine(Word("+-"+nums, nums) + Optional("." + Optional(Word(nums))))
 #                else:
 #                    path = os.path.join(path)
 
-fvar = Optional(Word(nums) + Literal(":").suppress()) + ident
+fvar = Optional(Word(nums) + Literal(":").suppress(), default="-1") + ident
 fvara = Optional(Word(nums) + Literal(":").suppress()) + ident + Literal("[]").suppress()
-
 
 
 class DefVarExpr(object):
@@ -208,6 +208,18 @@ class DefVarExpr(object):
         return str(self.getExprStack())
 
 
+class Field(object):
+    def __init__(self, name, article_id, methods, args):
+        self.name = name
+        self.article_id = article_id if article_id != -1 else None
+        self.methods = methods if len(methods) else None
+        self.args = args if len(args) else None
+
+    def __str__(self):
+        return "name:{} article_id:{} methods:{} args:{}".format(self.name, self.article_id, self.methods, self.args)
+
+
+
 class DefVarStr(object):
     def __init__(self):
         self.s = ""
@@ -226,3 +238,12 @@ class DefVarStr(object):
 def get_allowed_channels(request, channels):
     if not request.user.is_authenticated():
         raise PermissionDenied('Not allowed to subscribe nor to publish on the Websocket!')
+
+
+def fix_input_newer():
+    for i in models.Input.objects.all():
+        n = models.Input.objects.filter(article=i.article, owner=i.owner, name=i.name, created__gt=i.created).order_by('created').first()
+        if i.newer != n:
+            logger.warn("{}: set newer to {}".format(i, n))
+            i.newer = n
+            i.save()

@@ -1,1 +1,27 @@
-<pre>{{ data|join:", " }}</pre>
+{% load wiki_forms_tags %}
+
+{% with type=value|get_data_type %}
+{% get_uuid as uid %}
+
+{% if type == 'list' %}
+{% for v in value %}{% include "wiki/plugins/forms/display-default.html" with value=v %}{% endfor %}
+
+{% elif type == 'dict' and value.name and 'text/' in value.type %}
+<textarea id="{{uid}}">{{ value.content }}</textarea>
+<script>
+  CodeMirror.fromTextArea(document.getElementById("{{uid}}"), {
+    lineNumbers: true,
+    matchBrackets: true,
+    mode: "{{value.type}}",
+    readOnly: true
+  });
+</script>
+
+{% elif type == 'str' %}
+{{ value }}
+
+{% else %}
+<pre>{{ type }}</pre>
+<pre>{{ value|pprint }}</pre>
+{% endif %}
+{% endwith %}

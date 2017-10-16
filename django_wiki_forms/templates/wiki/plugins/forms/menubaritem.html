@@ -1,5 +1,7 @@
 {% load i18n sekizai_tags static %}
-  <li class="divider notification-before-list">1</li>
+
+<li class="divider notification-before-list">1</li>
+
 {% addtoblock "js" %}
 <script type="text/javascript">
   var WEBSOCKET_URI="{{ WEBSOCKET_URI }}";
@@ -7,4 +9,13 @@
   var ARTICLE_ID="{{ article.pk }}";
   var USER_ID="{{ request.user.pk }}";
 </script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.30.0/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.30.0/mode/clike/clike.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.30.0/mode/python/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.30.0/mode/xml/xml.min.js"></script>
+{% endaddtoblock %}
+
+{% addtoblock "css" %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.30.0/codemirror.min.css">
 {% endaddtoblock %}

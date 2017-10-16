@@ -57,12 +57,13 @@ function receiveMessage(msg) {
   $('span[data-listen].dw-forms').each(function(n,e) {
     $(e).attr('data-listen').split(",").some(function(i) {
       var l = i.split(':');
-      if (l[0] != m[0] || l[1] != m[1])
-        return false;
-
-      if (l[2] == '' || m[2] == USER_ID) {
+      if ((l[0] != m[0] || (l[0] == -1 && ARTICLE_ID == m[0])) &&
+          l[1] != m[1] && 
+          (l[2] == '' || m[2] == USER_ID)) {
         wiki_display_data($(e));
         return true;
+      } else {
+        return false;
       }
     })
   })
@@ -80,7 +81,6 @@ function update_later(fn) {
     }, 2000);
   };
 }
-
 
 
 $(document).ready(function() {

@@ -10,15 +10,14 @@ from django.http import HttpResponse, JsonResponse
 from django.contrib.auth.mixins import LoginRequiredMixin
 from wiki.core.markdown import ArticleMarkdown
 from django.shortcuts import render
-
-
+from collections import defaultdict
+from django.db import transaction
 from . import models
-from . import tasks
+# from . import tasks
 
 import logging
 import json
 import re
-
 logger = logging.getLogger(__name__)
 
 NAME_RE = re.compile(
@@ -43,7 +42,8 @@ class InputDataView(ArticleMixin, LoginRequiredMixin, View):
             val = models.Input.objects.filter(
                 article=self.article,
                 name=name,
-                owner=request.user).last()
+                owner=request.user,
+                newer__isnull=True).last()
         except Exception as e:
             logger.warning('broken get request: {}'.format(e))
             return HttpResponse(status=400)
@@ -67,13 +67,46 @@ class InputDataView(ArticleMixin, LoginRequiredMixin, View):
             logger.warning('broken get request: {}'.format(e))
             return HttpResponse(status=500)
 
-        curr = models.Input.objects.filter(article=self.article, name=name).last()
+        curr = models.Input.objects.filter(article=self.article, name=name, owner=request.user).last()
         if curr and curr.val == data_json:
             return HttpResponse(status=204)
 
-        models.Input.objects.create(article=self.article, owner=request.user, name=name, val=data_json)
+        new = models.Input(article=self.article, owner=request.user, name=name, val=data_json)
+
+        with transaction.atomic():
+            new.save()
+            if curr:
+                curr.newer = curr
+                curr.save()
 
         return HttpResponse(status=204)
+
+
+def evaluate_field(article, owner, f):
+    out = None
+    q = models.Input.objects.filter(
+        article__pk=article.pk if f['article_pk'] == -1 else f['article_pk'],
+        name=f['name'],
+    )
+
+    for m in f['methods']:
+        if not out:
+            if m['name'] == 'all':
+                q = q.filter(newer__isnull=True)
+                continue
+            elif m['name'] == 'self':
+                q = q.filter(newer__isnull=True, owner=owner)
+                continue
+            elif m['name'] == 'created':
+                out = [(i, i.created) for i in q]
+                continue
+            else:
+                out = [(i, json.loads(i.val)) for i in q]
+
+        out = [(i, v.get(m['name'], None)) if v else None for i, v in out]
+
+    return out if out else [(i, json.loads(i.val)) for i in q]
+
 
 
 class DisplayDataView(ArticleMixin, LoginRequiredMixin, View):
@@ -90,52 +123,35 @@ class DisplayDataView(ArticleMixin, LoginRequiredMixin, View):
     def get(self, request, display_id, *args, **kwargs):
         try:
             i = self.md.display_fields[int(display_id)-1]
-            variant = i['variant']
+            variant = i['variant'] if i['variant'] else "list"
             fields = i['fields']
         except:
             logger.warning('broken get request')
             return HttpResponse(status=400)
 
-        if variant is None or variant in ['files']:
-            v = models.Input.objects.filter(
-                article__pk=fields[0]['article_pk'],
-                name=fields[0]['name'],
-                owner=request.user).last()
-
-            data = json.loads(v.val) if v else ""
-
-        elif variant == 'all':
-            data = dict()
+        if variant == 'list':
+            data = list()
 
             for i, f in enumerate(fields):
-                q = models.Input.objects.filter(
-                    article__pk=f['article_pk'],
-                    name=f['name'])
+                for u, v in evaluate_field(self.article, request.user, f):
+                    data.append(v)
 
-                for o in q.values('owner__pk', 'owner__first_name', 'owner__last_name', 'owner__username').distinct():
-                    v = q.filter(owner__pk=o['owner__pk']).last()
-                    if v:
-                        if o["owner__first_name"] and o['owner__last_name']:
-                            uname = "{} {}".format(o["owner__first_name"], o['owner__last_name'])
-                        else:
-                            uname = o["owner__username"]
+            c = dict(data=data)
 
-                        if uname not in data:
-                            data[uname] = [None]*len(fields)
+        elif variant == 'per-user':
+            columns = list()
+            data = defaultdict(lambda: [None] * len(fields))
+            for i, f in enumerate(fields):
+                columns.append(f['name'])
 
-                        data[uname][i] = json.loads(v.val)
+                for u, v in evaluate_field(self.article, request.user, f):
+                    data[u.owner][i] = v
 
-                    else:
-                        idef = models.InputDefinition.objects.filter(
-                            article__pk=f['article_pk'],
-                            name=f['name']).last()
-                        if idef:
-                            tasks.evaluate_init(idef.pk, request.user.pk)
+            c = dict(data=dict(data), columns=columns)
 
-        c = dict(
-            fields=[(f['article_pk'], f['name']) for f in fields],
-            data=data)
+        else:
+            c = dict()
 
         return render(request,
-                      "wiki/plugins/forms/display-{}.html".format(variant if variant else "default"),
+                      "wiki/plugins/forms/display-{}.html".format(variant),
                       context=c)
