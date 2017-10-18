@@ -95,22 +95,22 @@ $(document).ready(function() {
     var data = [];
 
     for (var i = 0; i < n; i++) {
-      var file = ev.target.files[i];
       var reader = new FileReader();
+      reader._file = ev.target.files[i];
 
       reader.onload = function(ev2) {
         data.push({
-          name:file.name,
-          size:file.size,
-          type:file.type,
-          content:ev2.target.result
+          name: ev2.target._file.name,
+          size: ev2.target._file.size,
+          type: ev2.target._file.type,
+          content: ev2.target.result
         });
 
         if (data.length == n) {
           wiki_input_post_data($(ev.target), data);
         }
       }
-      reader.readAsBinaryString(file);
+      reader.readAsBinaryString(reader._file);
     }
   })
 

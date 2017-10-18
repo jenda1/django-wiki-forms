@@ -5,7 +5,6 @@ import re
 import markdown
 from django.template.loader import render_to_string
 import pyparsing as pp
-from .. import utils
 # from django.utils.translation import ugettext as _
 
 MACRO_RE = re.compile(

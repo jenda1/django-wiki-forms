@@ -1,6 +1,15 @@
-{% for x in data %}
-{{ x.name }}
-<pre>
-{{ x.content }}
-</pre>
-{% endfor %}
+{% load wiki_forms_tags %}
+
+{% get_uuid as uid %}
+
+<ul class="nav nav-tabs">
+  {% for v in data %}
+  <li{% if forloop.first %} class="active"{% endif %}><a data-toggle="tab" href="#{{uid}}-{{forloop.counter}}">{{ v.name }}</a></li>
+  {% endfor %}
+</ul>
+
+<div class="tab-content">
+  {% for v in data %}
+  <div id="{{uid}}-{{forloop.counter}}" class="tab-pane fade{% if forloop.first %} in active{% endif %}">{{ v.content|codehilite }}</div>
+  {% endfor %}
+</div>

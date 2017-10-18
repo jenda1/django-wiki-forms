@@ -2,8 +2,15 @@ from __future__ import absolute_import, unicode_literals
 
 from django import template
 from django_wiki_forms.mdx.input import InputPreprocessor
+from django.template.defaultfilters import stringfilter
+from django.utils.safestring import mark_safe
 import pprint
 import uuid
+
+from pygments import highlight
+from pygments.lexers import guess_lexer, TextLexer
+from pygments.formatters import HtmlFormatter
+
 
 register = template.Library()
 
@@ -27,3 +34,14 @@ def allowed_input_types():
             yield getattr(InputPreprocessor, m).meta
         except AttributeError:
             pass
+
+@register.filter
+@stringfilter
+def codehilite(value):
+    try:
+        lexer = guess_lexer(value)
+    except ValueError:
+        lexer = TextLexer()
+
+    formatter = HtmlFormatter(cssclass="codehilite")
+    return mark_safe(highlight(value, lexer, formatter))

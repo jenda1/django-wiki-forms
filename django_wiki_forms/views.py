@@ -129,12 +129,20 @@ class DisplayDataView(ArticleMixin, LoginRequiredMixin, View):
             logger.warning('broken get request')
             return HttpResponse(status=400)
 
-        if variant == 'list':
+        if variant in ['list']:
             data = list()
 
             for i, f in enumerate(fields):
                 for u, v in evaluate_field(self.article, request.user, f):
                     data.append(v)
+
+            c = dict(data=data)
+
+        elif variant in ['files']:
+            data = list()
+            for i, f in enumerate(fields):
+                for u, v in evaluate_field(self.article, request.user, f):
+                    data += v
 
             c = dict(data=data)
 

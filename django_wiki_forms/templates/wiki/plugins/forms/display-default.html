@@ -7,7 +7,8 @@
 {% for v in value %}{% include "wiki/plugins/forms/display-default.html" with value=v %}{% endfor %}
 
 {% elif type == 'dict' and value.name and 'text/' in value.type %}
-<textarea id="{{uid}}">{{ value.content }}</textarea>
+<h4>{{value.name}}</h4>
+<textarea id="{{uid}}">{{ value.content }}</textarea><br/>
 <script>
   CodeMirror.fromTextArea(document.getElementById("{{uid}}"), {
     lineNumbers: true,
@@ -16,7 +17,6 @@
     readOnly: true
   });
 </script>
-
 {% elif type == 'str' %}
 {{ value }}
 
