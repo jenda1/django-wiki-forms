@@ -1,7 +1,7 @@
 $.ajaxSetup({
   beforeSend: function(xhr, settings) {
     if (settings.type == 'POST' && !this.crossDomain) {
-      csrftoken = document.cookie.replace(/^(.*;)?csrftoken=(\w+?)(;.*)?/, '$2');
+      csrftoken = document.cookie.replace(/^(.*;)?\s*csrftoken=(\w+?)(;.*)?/, '$2');
       xhr.setRequestHeader("X-CSRFToken", csrftoken);
     }
   }

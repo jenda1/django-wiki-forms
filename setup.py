@@ -36,7 +36,7 @@ setup(
     author="Jan Lána",
     author_email='lana.jan@gmail.com',
     url='https://github.com/jenda1/django-wiki-forms',
-    packages=['django_wiki_forms', 'django_wiki_forms.mdx', 'django_wiki_forms.migrations'],
+    packages=['django_wiki_forms', 'django_wiki_forms.mdx', 'django_wiki_forms.migrations', 'django_wiki_forms.templatetags' ],
     include_package_data=True,
     install_requires=requirements,
     license="GNU General Public License v3",

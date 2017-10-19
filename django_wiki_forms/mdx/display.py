@@ -37,12 +37,11 @@ ffield = (fvar +
               pp.Literal(".").suppress() +
               pp.delimitedList(fmethod, delim="."), default={'name': "self", 'args': list()}))
           ).setParseAction(lambda strg, loc, st: dict(
-              article_pk=-1 if st[0] == "this" else int(st[0]),
+              article_pk=st[0],
               name=st[1],
               methods=list(st[2])))
 
 ffields = pp.ZeroOrMore(ffield) + pp.StringEnd()
-
 
 class DisplayPreprocessor(markdown.preprocessors.Preprocessor):
 
@@ -58,6 +57,10 @@ class DisplayPreprocessor(markdown.preprocessors.Preprocessor):
             return line
 
         fields = ffields.parseString(m.group('kwargs')).asList() if m.group('kwargs') else list()
+        for f in fields:
+            f['article_pk'] = self.markdown.article.pk if f['article_pk'] == 'this' else int(f['article_pk'])
+
+        #for self.markdown.article
 
         self.display_fields.append(dict(
             variant=m.group('variant'),
