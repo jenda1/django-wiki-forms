@@ -19,7 +19,10 @@
 </script>
 {% elif type == 'str' %}
 {{ value }}
-
+{% elif type == 'int' %}
+{{ value }}
+{% elif type == 'float' %}
+{{ value }}
 {% else %}
 <pre>{{ type }}</pre>
 <pre>{{ value|pprint }}</pre>

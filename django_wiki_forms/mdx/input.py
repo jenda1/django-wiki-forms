@@ -88,7 +88,7 @@ class InputPreprocessor(markdown.preprocessors.Preprocessor):
                     break
 
         self.input_names.add(name)
-        self.input_fields.append({'name': name})
+        self.input_fields.append({'name': name, 'variant': variant})
 
         html = render_to_string(
             "wiki/plugins/forms/input-{}.html".format(variant),

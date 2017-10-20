@@ -9,6 +9,8 @@ from .mdx.defs import DefExtension
 from .mdx.display import DisplayExtension
 from django.conf.urls import url
 
+import ipdb  # NOQA
+
 import logging
 logger = logging.getLogger(__name__)
 

@@ -65,8 +65,7 @@ class DefPreprocessor(markdown.preprocessors.Preprocessor):
 
         m = DEFVAR_INLINE_RE.match(line)
         if m:
-            o = utils.DefVarExpr(m.group('expr'))
-            self.markdown.defs[m.group('target')] = o
+            self.markdown.defs[m.group('target')] = utils.DefVarExpr(self.markdown.article, m.group('expr'))
 
             return m.group('prefix') + self.process_line(m.group('suffix'))
 

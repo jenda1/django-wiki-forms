@@ -10,16 +10,14 @@ from django.utils.translation import ugettext_lazy as _
 from wiki.models.pluginbase import ArticlePlugin
 from wiki.core import compat
 from django.contrib.auth import get_user_model
-from ws4redis.publisher import RedisPublisher
-from ws4redis.redis_store import RedisMessage
 
-import json
 import logging
 from . import tasks
+from . import utils
+import ipdb  # NOQA
+
 
 logger = logging.getLogger(__name__)
-
-
 
 User = get_user_model()
 
@@ -31,8 +29,10 @@ class Input(ArticlePlugin):
         help_text=_('The author of the input. The owner always has both read access.'),
         on_delete=models.SET_NULL)
 
+    created_by = models.ForeignKey(compat.USER_MODEL, null=True, related_name='created_inputs', on_delete=models.SET_NULL)
+
     name = models.CharField(max_length=28)
-    val = models.TextField()
+    val = models.TextField(blank=True, null=True)
 
     newer = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL)
 
@@ -43,14 +43,10 @@ class Input(ArticlePlugin):
         return False
 
     def validate_unique(self, exclude=None):
-        if Input.objects.exclude(id=self.id).filter(
-                article=self.article,
-                owner=self.owner,
-                name=self.name,
-                newer=self.newer).exists():
-            raise ValidationError("duplicate Input")
-        super(Input, self).validate_unique(exclude)
+        if self.newer and Input.objects.exclude(id=self.id).filter(newer=self.newer).exists():
+            raise ValidationError("data consistency error")
 
+        super(Input, self).validate_unique(exclude)
 
     class Meta:
         verbose_name = _('Input')
@@ -58,14 +54,17 @@ class Input(ArticlePlugin):
         get_latest_by = 'created'
 
     def __str__(self):
-        return _('{}{}:{}: {}').format("" if self.newer is None else "#", self.owner, self.name, (self.val[:75] + '..') if len(self.val) > 75 else self.val)
+        return _('{}{}:{}{}: {}').format("" if self.newer is None else "#", self.article.pk, self.name, "" if self.owner is None else "@{}".format(self.owner), (self.val[:75] + '..') if len(self.val) > 75 else self.val)
 
 
 class InputDefinition(models.Model):
+    created = models.DateTimeField()
+
     article = models.ForeignKey(wiki_models.Article, on_delete=models.CASCADE)
     name = models.CharField(max_length=28)
-
     expr = models.TextField()
+
+    per_user = models.BooleanField()
 
     class Meta:
         unique_together = ('article', 'name')
@@ -75,20 +74,21 @@ class InputDefinition(models.Model):
 
 
 class InputDependency(models.Model):
-    definition = models.ForeignKey(InputDefinition, on_delete=models.CASCADE)
+    idef = models.ForeignKey(InputDefinition, on_delete=models.CASCADE)
 
     article = models.ForeignKey(wiki_models.Article, on_delete=models.CASCADE)
     name = models.CharField(max_length=28)
-    per_owner = models.BooleanField()
+
+    per_user = models.BooleanField()
 
 
     def __str__(self):
-        return '{}:{} <- {}:{}{}'.format(
-            self.definition.article,
-            self.definition.name,
-            self.article,
+        return '{}:{}: {}:{}{}'.format(
+            self.idef.article.pk,
+            self.idef.name,
+            self.article.pk,
             self.name,
-            "" if self.per_owner else "[]")
+            "" if self.per_user else "*")
 
 
 @disable_signal_for_loaddata
@@ -100,58 +100,11 @@ def post_article_revision_save(**kwargs):
 
     old = InputDefinition.objects.filter(article=arev.article).exclude(name__in=md.defs)
     if old.exists():
-        logger.warning("delete definition(s) {}: {}".format(arev.article, [str(o) for o in old]))
+        logger.info("delete definition(s) {}: {}".format(arev.article, [str(o) for o in old]))
         old.delete()
 
     for name, val in md.defs.items():
-        expr = val.getExprStack()
-        expr_json = json.dumps(expr)
-
-        idef = InputDefinition.objects.filter(article=arev.article, name=name).last()
-        if idef:
-            if idef.expr == expr_json:
-                continue
-            else:
-                idef.delete()
-
-        idef = InputDefinition.objects.create(article=arev.article, name=name, expr=expr_json)
-        logger.warning("create/update definition {}".format(idef))
-
-        for op, val in expr:
-            if op in ['var', 'vara']:
-                article = arev.article if val[0] == -1 else wiki_models.Article.objects.get(pk=val[0])
-
-                InputDependency.objects.create(
-                    definition=idef,
-                    article=article,
-                    name=val[1],
-                    per_owner=True if op == 'var' else False)
-
-        for i in Input.objects.filter(article=arev.article, name=name):
-            tasks.evaluate.delay(idef.pk, i.owner.pk)
-
-
-@disable_signal_for_loaddata
-def post_input_save(**kwargs):
-    i = kwargs['instance']
-
-    for idef in InputDependency.objects.filter(article=i.article, name=i.name):
-        if idef.per_owner:
-            tasks.evaluate.delay(idef.pk, i.owner.pk)
-        else:
-            for uid in Input.objects.filter(article=idef.article, name=idef.name).values('owner').distinct():
-                tasks.evaluate.delay(idef.pk, uid)
-
-
-@disable_signal_for_loaddata
-def post_input_save2(**kwargs):
-    i = kwargs['instance']
-
-    msg = RedisMessage("{}:{}:{}".format(i.article.pk, i.name, i.owner.pk))
-    redis_publisher = RedisPublisher(facility="django-wiki-forms", broadcast=True)
-    redis_publisher.publish_message(msg)
+        utils.update_inputdef(arev.article, name, val.getExprStack())
 
 
 signals.post_save.connect(post_article_revision_save, wiki_models.ArticleRevision)
-signals.post_save.connect(post_input_save, Input)
-signals.post_save.connect(post_input_save2, Input)

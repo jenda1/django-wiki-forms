@@ -5,7 +5,10 @@ import re
 import markdown
 from django.template.loader import render_to_string
 import pyparsing as pp
+from .. import utils
 # from django.utils.translation import ugettext as _
+
+import ipdb  # NOQA
 
 MACRO_RE = re.compile(
     r'(?P<prefix>.*?)\[\s*display(-(?P<variant>\w(\w|-|_)*))?(\s+(?P<kwargs>.*?))\s*\](?P<suffix>.*)$',
@@ -22,27 +25,6 @@ class DisplayExtension(markdown.Extension):
 
 
 
-fident = pp.Word(pp.alphas, pp.alphas+pp.nums+"_")
-fvar = pp.Optional(pp.Word(pp.nums) + pp.Literal(":").suppress(), default="this") + fident
-fmethod = (fident +
-           pp.Group(pp.Optional(
-               pp.Literal("(").suppress() +
-               pp.delimitedList(pp.Word(pp.alphas+pp.nums+"_")) +
-               pp.Literal(")").suppress()))
-           ).setParseAction(lambda strg, loc, st: dict(
-               name=st[0],
-               args=list(st[1])))
-ffield = (fvar +
-          pp.Group(pp.Optional(
-              pp.Literal(".").suppress() +
-              pp.delimitedList(fmethod, delim="."), default={'name': "self", 'args': list()}))
-          ).setParseAction(lambda strg, loc, st: dict(
-              article_pk=st[0],
-              name=st[1],
-              methods=list(st[2])))
-
-ffields = pp.ZeroOrMore(ffield) + pp.StringEnd()
-
 class DisplayPreprocessor(markdown.preprocessors.Preprocessor):
 
     def __init__(self, *args, **kwargs):
@@ -51,16 +33,21 @@ class DisplayPreprocessor(markdown.preprocessors.Preprocessor):
         if self.markdown:
             self.markdown.display_fields = self.display_fields
 
+        self.ffields = pp.ZeroOrMore(
+            (pp.Optional(pp.Word(pp.nums) + pp.Literal(":").suppress(), default=None) +
+             utils.fident).setParseAction(lambda strg, loc, st: dict(
+                 article_pk=self.markdown.article.pk if st[0] is None else st[0],
+                 name=st[1],
+             ))) + pp.StringEnd()
+
     def process_line(self, line):
         m = MACRO_RE.match(line)
         if not m:
             return line
 
-        fields = ffields.parseString(m.group('kwargs')).asList() if m.group('kwargs') else list()
-        for f in fields:
-            f['article_pk'] = self.markdown.article.pk if f['article_pk'] == 'this' else int(f['article_pk'])
-
-        #for self.markdown.article
+        fields = self.ffields.parseString(m.group('kwargs')).asList() if m.group('kwargs') else list()
+        for i, f in enumerate(fields):
+            fields[i]['article_pk'] = self.markdown.article.pk if f['article_pk'] == 'this' else int(f['article_pk'])
 
         self.display_fields.append(dict(
             variant=m.group('variant'),

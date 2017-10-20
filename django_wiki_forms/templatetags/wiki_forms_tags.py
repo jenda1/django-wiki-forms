@@ -4,6 +4,7 @@ from django import template
 from django_wiki_forms.mdx.input import InputPreprocessor
 from django.template.defaultfilters import stringfilter
 from django.utils.safestring import mark_safe
+from django.contrib.auth.models import User
 import pprint
 import uuid
 
@@ -45,3 +46,14 @@ def codehilite(value):
 
     formatter = HtmlFormatter(cssclass="codehilite")
     return mark_safe(highlight(value, lexer, formatter))
+
+
+
+
+@register.simple_tag
+def get_user_from_userid(user_id):
+    try:
+        u = User.objects.get(id=user_id)
+        return "{} {}".format(u.first_name, u.last_name)
+    except User.DoesNotExist:
+        return 'Unknown'

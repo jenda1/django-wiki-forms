@@ -9,15 +9,18 @@ from wiki.decorators import get_article
 from django.http import HttpResponse, JsonResponse
 from django.contrib.auth.mixins import LoginRequiredMixin
 from wiki.core.markdown import ArticleMarkdown
+from wiki.models import Article
 from django.shortcuts import render
 from collections import defaultdict
-from django.db import transaction
-from . import models
+# from . import models
 # from . import tasks
+from . import utils
 
 import logging
 import json
 import re
+import ipdb  # NOQA
+
 logger = logging.getLogger(__name__)
 
 NAME_RE = re.compile(
@@ -38,18 +41,13 @@ class InputDataView(ArticleMixin, LoginRequiredMixin, View):
     def get(self, request, input_id, *args, **kwargs):
         try:
             field = self.md.input_fields[int(input_id)-1]
-            name = field['name']
-            val = models.Input.objects.filter(
-                article=self.article,
-                name=name,
-                owner=request.user,
-                newer__isnull=True).last()
+            val = utils.get_input_val(self.article, field['name'], request.user)
         except Exception as e:
             logger.warning('broken get request: {}'.format(e))
             return HttpResponse(status=400)
 
         return JsonResponse({
-            'val': json.loads(val.val) if val else "",
+            'val': val if val else "",
             'locked': self.article.current_revision.locked}, safe=False)
 
 
@@ -62,50 +60,17 @@ class InputDataView(ArticleMixin, LoginRequiredMixin, View):
             name = field['name']
             req = request.body.decode('utf-8')
             data = json.loads(req)
+
+            if field['variant'] in ['number', 'number_inline']:
+                data = int(data)
+
             data_json = json.dumps(data)
         except Exception as e:
             logger.warning('broken get request: {}'.format(e))
             return HttpResponse(status=500)
 
-        curr = models.Input.objects.filter(article=self.article, name=name, owner=request.user).last()
-        if curr and curr.val == data_json:
-            return HttpResponse(status=204)
-
-        new = models.Input(article=self.article, owner=request.user, name=name, val=data_json)
-
-        with transaction.atomic():
-            new.save()
-            if curr:
-                curr.newer = curr
-                curr.save()
-
+        utils.update_input(self.article, name, request.user, data_json)
         return HttpResponse(status=204)
-
-
-def evaluate_field(article, owner, f):
-    out = None
-    q = models.Input.objects.filter(
-        article__pk=article.pk if f['article_pk'] == -1 else f['article_pk'],
-        name=f['name'],
-    )
-
-    for m in f['methods']:
-        if not out:
-            if m['name'] == 'all':
-                q = q.filter(newer__isnull=True)
-                continue
-            elif m['name'] == 'self':
-                q = q.filter(newer__isnull=True, owner=owner)
-                continue
-            elif m['name'] == 'created':
-                out = [(i, i.created) for i in q]
-                continue
-            else:
-                out = [(i, json.loads(i.val)) for i in q]
-
-        out = [(i, v.get(m['name'], None)) if v else None for i, v in out]
-
-    return out if out else [(i, json.loads(i.val)) for i in q]
 
 
 
@@ -120,7 +85,7 @@ class DisplayDataView(ArticleMixin, LoginRequiredMixin, View):
         return super(DisplayDataView, self).dispatch(request, article, *args, **kwargs)
 
 
-    def get(self, request, display_id, *args, **kwargs):
+    def get(self, request, display_id, *args, **kwargs):  # NOQA
         try:
             i = self.md.display_fields[int(display_id)-1]
             variant = i['variant'] if i['variant'] else "list"
@@ -133,15 +98,19 @@ class DisplayDataView(ArticleMixin, LoginRequiredMixin, View):
             data = list()
 
             for i, f in enumerate(fields):
-                for u, v in evaluate_field(self.article, request.user, f):
-                    data.append(v)
+                a = Article.objects.get(pk=f['article_pk'])
+
+                val = utils.get_input_val(a, f['name'], request.user)
+                if val:
+                    data.append(val)
 
             c = dict(data=data)
 
         elif variant in ['files']:
             data = list()
             for i, f in enumerate(fields):
-                for u, v in evaluate_field(self.article, request.user, f):
+                a = self.article if f['article_pk'] == 'this' else Article.objects.get(pk=f['article_pk'])
+                for v in utils.evaluate_field(a, f['name'], request.user):
                     data += v
 
             c = dict(data=data)
@@ -149,13 +118,16 @@ class DisplayDataView(ArticleMixin, LoginRequiredMixin, View):
         elif variant == 'per-user':
             columns = list()
             data = defaultdict(lambda: [None] * len(fields))
-            for i, f in enumerate(fields):
+            for x, f in enumerate(fields):
                 columns.append(f['name'])
 
-                for u, v in evaluate_field(self.article, request.user, f):
-                    data[u.owner][i] = v
+                v = utils.get_input_val(Article.objects.get(pk=f['article_pk']), f['name'], request.user)
+                if v:
+                    for user in v:
+                        data[user][x] = v[user]
 
             c = dict(data=dict(data), columns=columns)
+            print(c)
 
         else:
             c = dict()

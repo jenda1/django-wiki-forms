@@ -21,7 +21,6 @@ function wiki_input_get_data(field, fn) {
 }
 
 function wiki_input_post_data(field, val) {
-  console.log('postdata: ' + val);
   $.ajax({
          url: "/" + ARTICLE_ID + "/plugin/forms/input/" + field.attr("data-id"),
          type: 'POST',
@@ -35,7 +34,6 @@ function wiki_input_post_data(field, val) {
 
 
 function wiki_display_data(field) {
-  console.log('displaydata: ');
   $.ajax({
          url: "/" + ARTICLE_ID + "/plugin/forms/display/" + field.attr("data-id"),
          type: 'GET',
@@ -51,14 +49,13 @@ function wiki_display_data(field) {
 
 
 function receiveMessage(msg) {
-  console.log('Message from Websocket: ' + msg);
   var m = msg.split(':');
 
   $('span[data-listen].dw-forms').each(function(n,e) {
     $(e).attr('data-listen').split(",").some(function(i) {
       var l = i.split(':');
-      if ((l[0] != m[0] || (l[0] == -1 && ARTICLE_ID == m[0])) &&
-          l[1] != m[1] && 
+      if (l[0] == m[0] &&
+          l[1] == m[1] && 
           (l[2] == '' || m[2] == USER_ID)) {
         wiki_display_data($(e));
         return true;

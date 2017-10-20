@@ -9,6 +9,7 @@ INPUTS = getattr(
     'WIKI_PLUGINS_INPUTS',
     ('text', 'text_inline',
      'hidden', 'hidden_inline',
+     'number', 'number_inline',
      'file',
      'files',
      'textarea',

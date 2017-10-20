@@ -1,3 +1,4 @@
+{% load wiki_forms_tags %}
 <table class="table table-condensed">
   <thead>
     <tr>
@@ -10,7 +11,7 @@
   <tbody>
     {% for u,ds in data.items %}
     <tr>
-      <th>{{ u }}</th>
+      <th>{% get_user_from_userid u %}</th>
       {% for d in ds %}
       <td>{% include "wiki/plugins/forms/display-default.html" with value=d %}</td>
       {% endfor %}

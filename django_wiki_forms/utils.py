@@ -2,13 +2,21 @@ from __future__ import absolute_import, unicode_literals
 
 import operator
 import json
-from pyparsing import Literal, Word, Combine, Group, Optional, ZeroOrMore, Forward, nums, alphas, delimitedList, QuotedString
+import pyparsing as pp
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
+from wiki import models as wiki_models
+from wiki.core.markdown import ArticleMarkdown
 from . import models
+from . import tasks
+from django.utils import timezone
+from ws4redis.publisher import RedisPublisher
+from ws4redis.redis_store import RedisMessage
 
 import logging
-logger = logging.getLogger(__name__)
+import ipdb  # NOQA
 
+logger = logging.getLogger(__name__)
 # FIELD_RE = re.compile(
 #    r'\s*((?P<article>[-a-z0-9_./]+)/)?(?P<field>\w+?)\s*$'
 # )
@@ -32,94 +40,212 @@ opn = {"+": operator.add,
        "/": operator.truediv,
        }
 
+fident = pp.Word(pp.alphas, pp.alphas+pp.nums+"_")
+fnumber = pp.Combine(pp.Word(pp.nums) + pp.Optional("." + pp.Optional(pp.Word(pp.nums))))
 
-class DefEvaluate(object):
-    def __init__(self, idef, owner):
-        self.idef = idef
-        self.owner = owner
-        self.data = dict()
-        self.dataa = dict()
-        self.ts = idef.article.current_revision.created
+# fmethod = (fident +
+#           pp.Group(pp.Optional(
+#               pp.Literal("(").suppress() +
+#               pp.delimitedList(pp.Word(pp.alphas+pp.nums+"_")) +
+#               pp.Literal(")").suppress()))
+#           ).setParseAction(lambda strg, loc, st: dict(
+#               name=st[0],
+#               args=list(st[1])))
+# ffield = (fvar +
+#          pp.Group(pp.Optional(
+#              pp.Literal(".").suppress() +
+#              pp.delimitedList(fmethod, delim="."), default={'name': "self", 'args': list()}))
+#          ).setParseAction(lambda strg, loc, st: dict(
+#              article_pk=st[0],
+#              name=st[1],
+#              methods=list(st[2])))
 
-        expr = json.loads(idef.expr)
-        if self._initData(expr) is None:
-            return
+class Value(object):
+    def __init__(self, vtype, data):
+        self.vtype = vtype
+        self.data = data
 
-        i = models.Input.objects.filter(article=self.idef.article, name=self.idef.name, owner=owner).last()
-        if i and self.ts <= i.created:
-            # no update is needed, i is up-to-date
-            return
+    def getVal(self):
+        if self.vtype == 'float':
+            return float(self.data)
+        elif self.vtype == 'int':
+            return int(self.data)
+        elif self.vtype == 'str':
+            return str(self.data)
+        elif self.vtype == 'input':
+            try:
+                i = models.Input.objects.get(**self.data)
+                return json.loads(i.val)
+            except models.Input.DoesNotExist:
+                return None
 
-        val = self._evaluateStack(expr)
-        val_json = json.dumps(val)
-
-        if i and i.val == val_json:
-            # no update is needed, new value is the same as the previous one
-            return
-
-        logger.warning("update {}".format(self.idef))
-        models.Input.objects.create(article=self.idef.article, name=self.idef.name, owner=owner, val=val_json, created=self.ts)
-
-
-    def _initData(self, s):
-        for op, val in s:
-            if op == 'var':
-                v = models.Input.objects.filter(
-                    article=self.idef.article if val[0] == -1 else val[0],
-                    name=val[1], owner=self.owner).last()
-                if not v:
-                    return
-
-                self.ts = self.ts if self.ts and self.ts >= v.created else v.created
-                self.data[str(val)] = json.loads(v.val)
-
-            elif op == 'vara':
-                out = dict()
-
-                for v in models.Input.objects.filter(
-                        article=self.idef.article if val[0] == -1 else val[0],
-                        name=val[1]):
-                    out[v.owner] = json.loads(v.val)
-                    self.ts = self.ts if self.ts and self.ts >= v.created else v.created
-
-                self.dataa[str(val)] = out
-
-        return True
+        elif self.vtype == 'input_list':
+            i = models.Input.objects.filter(**self.data)
+            return {x.owner.pk: json.loads(x.val) for x in i.all()}
 
 
-    def _evaluateStack(self, s):
-        op, val = s.pop()
+def evaluate_deps(expr):
+    op, val = expr.pop()
 
-        if op == 'number':
-            return float(val)
+    if op in ['float', 'int', 'str']:
+        return []
 
-        elif op == 'string':
-            return str(val)
+    elif op == 'field':
+        return [(val['article_pk'], val['name'], True)]
 
-        elif op == 'var':
-            return self.data[str(val)]
+    elif op == 'fn':
+        n = expr.pop()
 
-        elif op == 'vara':
-            return self.dataa[str(val)]
+        args = list()
+        for i in range(n):
+            args.insert(0, evaluate_deps(expr))
 
-        elif op == 'op':
-            op2 = self._evaluateStack(s)
-            op1 = self._evaluateStack(s)
+        if val == 'all':
+            assert n == 1
 
-            return opn[val](op1, op2)
+            if len(args[0]):
+                return [(args[0][0][0], args[0][0][1], False)]
+            else:
+                return args[0]
 
-        elif op == 'fn':
-            n = self._evaluateStack(s)
-            assert n[0] == '#'
+        if val == 'len':
+            assert n == 1
+            return args[0]
 
-            args = list()
-            for i in range(n):
-                args.insert(self._evaluateStack(s), 0)
+    elif op == 'op':
+        op2 = evaluate_deps(expr)
+        op1 = evaluate_deps(expr)
+        return op1 + op2
 
-            return len(args)
+    assert False
 
+
+def evaluate_expr(expr, owner):
+    op, val = expr.pop()
+
+    if op in ['float', 'int', 'str']:
+        return Value(op, val)
+
+    elif op == 'field':
+        return Value('input', dict(
+            article__pk=val['article_pk'],
+            name=val['name'],
+            owner=owner,
+            newer__isnull=True))
+
+    elif op == 'fn':
+        n = expr.pop()
+
+        args = list()
+        for i in range(n):
+            args.insert(0, evaluate_expr(expr, owner))
+
+        if val == 'all':
+            assert n == 1
+            assert args[0].vtype == 'input'
+
+            return Value('input_list', dict(
+                article__pk=args[0].data['article__pk'],
+                name=args[0].data['name'],
+                newer__isnull=True))
+
+        elif val == 'len':
+            assert n == 1
+            return Value('int', len(args[0].getVal()))
+
+        elif val == 'sum':
+            out = 0
+
+            for arg in args:
+                v = arg.getVal()
+                if type(v) in [int, float]:
+                    out += v
+                elif type(v) in [str]:
+                    out += len(v)
+                else:
+                    logger.info("==== TYPE ===" + str(type(v)))
+
+            return Value('int' if type(out) is int else 'float', out)
+
+        assert False
+
+    elif op == 'op':
+        op2 = evaluate_expr(expr, owner)
+        op1 = evaluate_expr(expr, owner)
+
+        out = opn[val](op1.getVal(), op2.getVal())
+        if type(out) is int:
+            return Value('int', out)
+        elif type(out) is float:
+            return Value('float', out)
         else:
-            raise Exception
+            return Value('str', out)
+
+
+def evaluate_idef(idef, owner):  # NOQA
+    q = models.Input.objects.filter(article=idef.article, name=idef.name, newer__isnull=True, created__gte=idef.created)
+    try:
+        curr = q.get(owner=owner) if idef.per_user else q.get(owner__isnull=True)
+        curr_ts = curr.created
+    except models.Input.DoesNotExist:
+        curr = None
+        curr_ts = None
+
+    for dep in idef.inputdependency_set.all():
+        q = models.Input.objects.filter(article=dep.article, name=dep.name, newer__isnull=True)
+
+        if dep.per_user:
+            try:
+                ts = q.get(owner=owner).created
+                if not curr_ts or ts > curr_ts:
+                    curr_ts = ts
+            except models.Input.DoesNotExist:
+                return curr
+        else:
+            v = q.filter(owner__isnull=True).order_by('created').last()
+            if v and (not curr_ts or v.created > curr_ts):
+                curr_ts = v.created
+
+    if curr and curr_ts <= curr.created:
+        return curr
+
+    expr = json.loads(idef.expr)
+    val = evaluate_expr(expr, owner).getVal()
+
+    if val:
+        update_input(idef.article, idef.name, owner if idef.per_user else None, json.dumps(val), ts, curr)
+
+    return val
+
+
+def get_input_val(article, name, owner):
+    try:
+        idef = models.InputDefinition.objects.get(article=article, name=name)
+    except models.InputDefinition.DoesNotExist:
+        idef = None
+
+    try:
+        if idef and not idef.per_user:
+            i = models.Input.objects.get(article=article, name=name, newer__isnull=True, owner__isnull=True)
+        else:
+            i = models.Input.objects.get(article=article, name=name, newer__isnull=True, owner=owner)
+
+        return json.loads(i.val)
+
+    except models.Input.DoesNotExist:
+        if idef:
+            tasks.evaluate_idef.delay(idef.pk, owner.pk)
+
+
+# plus = Literal("+")
+# minus = Literal("-")
+# mult = Literal("*")
+# div = Literal("/")
+# dot = Literal(".").suppress()
+# lpar = Literal("(").suppress()
+# rpar = Literal(")").suppress()
+# addop = (plus | minus).setResultsName('op')
+# multop = (mult | div).setResultsName('op')
 
 
 
@@ -135,19 +261,6 @@ class DefFn(object):
         return list()
 
 
-ident = Word(alphas, alphas+nums+"_")
-plus = Literal("+")
-minus = Literal("-")
-mult = Literal("*")
-div = Literal("/")
-dot = Literal(".").suppress()
-lpar = Literal("(").suppress()
-rpar = Literal(")").suppress()
-addop = (plus | minus).setResultsName('op')
-multop = (mult | div).setResultsName('op')
-
-fnumber = Combine(Word("+-"+nums, nums) + Optional("." + Optional(Word(nums))))
-
 # fvar = ((Literal(".") + OneOrMore(ident + Literal(".").suppress())) |
 #        ZeroOrMore((Literal("..") | ident) + Literal(".").suppress())) + ident
 #                path = v.asList()
@@ -157,67 +270,53 @@ fnumber = Combine(Word("+-"+nums, nums) + Optional("." + Optional(Word(nums))))
 #                else:
 #                    path = os.path.join(path)
 
-fvar = Optional(Word(nums) + Literal(":").suppress(), default="-1") + ident
-fvara = Optional(Word(nums) + Literal(":").suppress()) + ident + Literal("[]").suppress()
+# fvar = Optional(Word(nums) + Literal(":").suppress(), default="-1") + ident
+# fvara = Optional(Word(nums) + Literal(":").suppress()) + ident + Literal("[]").suppress()
 
 
 class DefVarExpr(object):
-    def __init__(self, expr):
+    def __init__(self, article, expr):
+        self.article = article
         self._parse(expr)
 
     def _push(self, strg, loc, args):
-        op = args.getName()
-
-        if op in ['var', 'vara']:
-            arr = args[0].asList()
-            article_pk = arr[0] if len(arr) == 2 else -1
-            name = arr[1] if len(arr) == 2 else arr[0]
-
-            self.exprStack.append((op, (article_pk, name)))
-
-        elif op == 'number':
-            self.exprStack.append((op, float(args[0])))
-
-        else:
-            self.exprStack.append((op, str(args[0])))
+        self.exprStack.append((args.getName(), args[0]))
 
     def _pushLen(self, strg, loc, args):
-        self.exprStack.append(('#', len(args)))
+        self.exprStack.append(len(args))
 
     def _parse(self, expr):
         self.exprStack = []
 
-        parser = Forward()
-        ffn = ident + lpar + delimitedList(parser).setParseAction(self._pushLen) + rpar
+        parser = pp.Forward()
+        ffn = (fident + pp.Literal('(').suppress() +
+               pp.delimitedList(parser).setParseAction(self._pushLen) +
+               pp.Literal(')').suppress())
+
+        ffield = (pp.Optional(pp.Word(pp.nums) + pp.Literal(":").suppress(), default=self.article.pk) + fident
+                  ).setParseAction(lambda strg, loc, st: dict(
+                      article_pk=st[0],
+                      name=st[1],
+                  ))
+
         atom = ((ffn.setResultsName('fn') |
-                 Group(fvara).setResultsName('vara') |
-                 Group(fvar).setResultsName('var') |
-                 QuotedString('"').setResultsName('string') |
-                 fnumber.setResultsName('number')).setParseAction(self._push) |
-                Group(lpar+parser+rpar))
-        term = atom + ZeroOrMore((multop + atom).setParseAction(self._push))
-        parser << term + ZeroOrMore((addop + term).setParseAction(self._push))
+                 ffield.setResultsName('field') |
+                 pp.QuotedString('"').setResultsName('str') |
+                 fnumber.setResultsName('float')
+                 ).setParseAction(self._push) |
+                pp.Group(pp.Literal('(').suppress() + parser + pp.Literal(')').suppress()))
+
+        term = atom + pp.ZeroOrMore((pp.Combine(pp.Literal("*") | pp.Literal("/")).setResultsName('op') + atom).setParseAction(self._push))
+        parser << term + pp.ZeroOrMore((pp.Combine(pp.Literal("+") | pp.Literal("-")).setResultsName('op') + term).setParseAction(self._push))
 
         parser.parseString(expr, True)
 
 
     def getExprStack(self):
-        return self.exprStack
+        return list(self.exprStack)
 
     def __str__(self):
         return str(self.getExprStack())
-
-
-class Field(object):
-    def __init__(self, name, article_id, methods, args):
-        self.name = name
-        self.article_id = article_id if article_id != -1 else None
-        self.methods = methods if len(methods) else None
-        self.args = args if len(args) else None
-
-    def __str__(self):
-        return "name:{} article_id:{} methods:{} args:{}".format(self.name, self.article_id, self.methods, self.args)
-
 
 
 class DefVarStr(object):
@@ -234,10 +333,85 @@ class DefVarStr(object):
         return str(self.getExprStack())
 
 
-
 def get_allowed_channels(request, channels):
     if not request.user.is_authenticated():
         raise PermissionDenied('Not allowed to subscribe nor to publish on the Websocket!')
+
+def update_input(article, name, owner, val, ts=None, curr=None):
+    if ts is None:
+        ts = timezone.now()
+
+    try:
+        if curr is None:
+            curr = models.Input.objects.get(article=article, name=name, owner=owner, newer__isnull=True)
+
+        if curr.val == val:
+            return
+
+        logger.debug("update Input {}:{} '{}' -> '{}'".format(article.pk, name, trims(curr.val), trims(val)))
+        with transaction.atomic():
+            curr.newer = models.Input.objects.create(article=article, name=name, owner=owner, val=val, created=ts)
+            curr.save()
+
+    except models.Input.DoesNotExist:
+        logger.info("create Input {}:{} '{}'".format(article.pk, name, utils.trims(val)))
+        models.Input.objects.create(article=article, name=name, owner=owner, val=val, created=ts)
+
+    # run related tasks
+    for dep in models.InputDependency.objects.filter(article=article, name=name):
+        tasks.evaluate_idef.delay(dep.idef.pk, owner.pk if owner else None)
+
+    # send notification to displays
+    msg = RedisMessage("{}:{}:{}".format(article.pk, name, owner.pk if owner else -1))
+    redis_publisher = RedisPublisher(facility="django-wiki-forms", broadcast=True)
+    redis_publisher.publish_message(msg)
+
+
+
+def update_inputdef(article, name, expr):
+    expr_json = json.dumps(expr)
+
+    try:
+        curr = models.InputDefinition.objects.get(article=article, name=name)
+        if curr.expr == expr_json:
+            return
+
+        logger.info("updated idef {}:{}".format(article.pk, name))
+        curr.delete()
+    except models.InputDefinition.DoesNotExist:
+        logger.info("create idef {}:{}".format(article.pk, name))
+        pass
+
+    deps = evaluate_deps(expr)
+
+    with transaction.atomic():
+        per_user = False
+        for a, n, p in deps:
+            per_user |= p
+
+        idef = models.InputDefinition.objects.create(article=article, name=name, expr=expr_json, per_user=per_user, created=article.modified)
+
+        for article_pk, name, per_user in deps:
+            models.InputDependency.objects.create(
+                idef=idef,
+                article=wiki_models.Article.objects.get(pk=article_pk),
+                name=name,
+                per_user=per_user)
+
+    for i in models.Input.objects.filter(article=article, name=name):
+        tasks.evaluate_idef.delay(idef.pk, i.owner.pk)
+
+
+
+def fix_idef():
+    models.InputDefinition.objects.all().delete()
+
+    for article in wiki_models.Article.objects.all():
+        md = ArticleMarkdown(article, preview=True)
+        md.convert(article.current_revision.content)
+
+        for name, val in md.defs.items():
+            update_inputdef(article, name, val.getExprStack())
 
 
 def fix_input_newer():
@@ -247,3 +421,9 @@ def fix_input_newer():
             logger.warn("{}: set newer to {}".format(i, n))
             i.newer = n
             i.save()
+
+
+
+def trims(s):
+    s=str(s)
+    return (s[:25] + '..') if len(s) > 25 else s
