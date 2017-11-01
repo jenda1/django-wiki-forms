@@ -17,22 +17,6 @@ import logging
 import ipdb  # NOQA
 
 logger = logging.getLogger(__name__)
-# FIELD_RE = re.compile(
-#    r'\s*((?P<article>[-a-z0-9_./]+)/)?(?P<field>\w+?)\s*$'
-# )
-
-# def parse_input(article, val):
-#    m = FIELD_RE.match(val)
-#    if not m:
-#        return None
-#
-#    path = article.get_absolute_url()
-#    if m.group('article'):
-#        path = os.path.normpath(os.path.join(path, m.group('article')))
-#
-#    return path.strip('/') + '/', m.group('field')
-
-
 
 opn = {"+": operator.add,
        "-": operator.sub,
@@ -42,23 +26,6 @@ opn = {"+": operator.add,
 
 fident = pp.Word(pp.alphas, pp.alphas+pp.nums+"_")
 fnumber = pp.Combine(pp.Word(pp.nums) + pp.Optional("." + pp.Optional(pp.Word(pp.nums))))
-
-# fmethod = (fident +
-#           pp.Group(pp.Optional(
-#               pp.Literal("(").suppress() +
-#               pp.delimitedList(pp.Word(pp.alphas+pp.nums+"_")) +
-#               pp.Literal(")").suppress()))
-#           ).setParseAction(lambda strg, loc, st: dict(
-#               name=st[0],
-#               args=list(st[1])))
-# ffield = (fvar +
-#          pp.Group(pp.Optional(
-#              pp.Literal(".").suppress() +
-#              pp.delimitedList(fmethod, delim="."), default={'name': "self", 'args': list()}))
-#          ).setParseAction(lambda strg, loc, st: dict(
-#              article_pk=st[0],
-#              name=st[1],
-#              methods=list(st[2])))
 
 class Value(object):
     def __init__(self, vtype, data):
@@ -79,7 +46,7 @@ class Value(object):
             except models.Input.DoesNotExist:
                 return None
 
-        elif self.vtype == 'input_list':
+        elif self.vtype == 'input_user_list':
             i = models.Input.objects.filter(**self.data)
             return {x.owner.pk: json.loads(x.val) for x in i.all()}
 
@@ -100,17 +67,20 @@ def evaluate_deps(expr):
         for i in range(n):
             args.insert(0, evaluate_deps(expr))
 
-        if val == 'all':
+        if val in ['all', 'sum']:
             assert n == 1
 
-            if len(args[0]):
+            if type(args[0]) is list:
                 return [(args[0][0][0], args[0][0][1], False)]
             else:
                 return args[0]
 
-        if val == 'len':
+        elif val == 'len':
             assert n == 1
             return args[0]
+
+        else:
+            assert False
 
     elif op == 'op':
         op2 = evaluate_deps(expr)
@@ -120,7 +90,7 @@ def evaluate_deps(expr):
     assert False
 
 
-def evaluate_expr(expr, owner):
+def evaluate_expr(expr, owner):  # NOQA
     op, val = expr.pop()
 
     if op in ['float', 'int', 'str']:
@@ -144,7 +114,7 @@ def evaluate_expr(expr, owner):
             assert n == 1
             assert args[0].vtype == 'input'
 
-            return Value('input_list', dict(
+            return Value('input_user_list', dict(
                 article__pk=args[0].data['article__pk'],
                 name=args[0].data['name'],
                 newer__isnull=True))
@@ -154,18 +124,21 @@ def evaluate_expr(expr, owner):
             return Value('int', len(args[0].getVal()))
 
         elif val == 'sum':
-            out = 0
+            assert n == 1
+            assert args[0].vtype == 'input_user_list'
 
-            for arg in args:
-                v = arg.getVal()
+            out = None
+
+            for u, v in args[0].getVal().items():
                 if type(v) in [int, float]:
-                    out += v
+                    out = v if out is None else out + v
                 elif type(v) in [str]:
-                    out += len(v)
+                    out = len(v) if out is None else out + len(v)
                 else:
                     logger.info("==== TYPE ===" + str(type(v)))
 
-            return Value('int' if type(out) is int else 'float', out)
+            # FIXME: if None, return None!
+            return Value('int' if type(out) is int else 'float', 0 if out is None else out)
 
         assert False
 
@@ -202,7 +175,7 @@ def evaluate_idef(idef, owner):  # NOQA
             except models.Input.DoesNotExist:
                 return curr
         else:
-            v = q.filter(owner__isnull=True).order_by('created').last()
+            v = q.filter(owner__isnull=False).order_by('created').last()
             if v and (not curr_ts or v.created > curr_ts):
                 curr_ts = v.created
 
@@ -213,7 +186,7 @@ def evaluate_idef(idef, owner):  # NOQA
     val = evaluate_expr(expr, owner).getVal()
 
     if val:
-        update_input(idef.article, idef.name, owner if idef.per_user else None, json.dumps(val), ts, curr)
+        update_input(idef.article, idef.name, owner if idef.per_user else None, json.dumps(val), curr_ts, curr)
 
     return val
 
@@ -237,18 +210,6 @@ def get_input_val(article, name, owner):
             tasks.evaluate_idef.delay(idef.pk, owner.pk)
 
 
-# plus = Literal("+")
-# minus = Literal("-")
-# mult = Literal("*")
-# div = Literal("/")
-# dot = Literal(".").suppress()
-# lpar = Literal("(").suppress()
-# rpar = Literal(")").suppress()
-# addop = (plus | minus).setResultsName('op')
-# multop = (mult | div).setResultsName('op')
-
-
-
 class DefFn(object):
     def __init__(self, args):
         self.args = [x.strip() for x in args.split(",")]
@@ -261,19 +222,6 @@ class DefFn(object):
         return list()
 
 
-# fvar = ((Literal(".") + OneOrMore(ident + Literal(".").suppress())) |
-#        ZeroOrMore((Literal("..") | ident) + Literal(".").suppress())) + ident
-#                path = v.asList()
-#
-#                if path[0] == '.' || path[0] == '..':
-#                    path = os.path.normpath(os.path.join(curr_path, *path[:-1]))
-#                else:
-#                    path = os.path.join(path)
-
-# fvar = Optional(Word(nums) + Literal(":").suppress(), default="-1") + ident
-# fvara = Optional(Word(nums) + Literal(":").suppress()) + ident + Literal("[]").suppress()
-
-
 class DefVarExpr(object):
     def __init__(self, article, expr):
         self.article = article
@@ -283,14 +231,14 @@ class DefVarExpr(object):
         self.exprStack.append((args.getName(), args[0]))
 
     def _pushLen(self, strg, loc, args):
-        self.exprStack.append(len(args))
+        self.exprStack.append(len([x for x in args[0] if not isinstance(x, pp.ParseResults)]))
 
     def _parse(self, expr):
         self.exprStack = []
 
         parser = pp.Forward()
         ffn = (fident + pp.Literal('(').suppress() +
-               pp.delimitedList(parser).setParseAction(self._pushLen) +
+               pp.Group(pp.Optional(pp.delimitedList(parser))).setParseAction(self._pushLen) +
                pp.Literal(')').suppress())
 
         ffield = (pp.Optional(pp.Word(pp.nums) + pp.Literal(":").suppress(), default=self.article.pk) + fident
@@ -319,20 +267,6 @@ class DefVarExpr(object):
         return str(self.getExprStack())
 
 
-class DefVarStr(object):
-    def __init__(self):
-        self.s = ""
-
-    def append(self, s):
-        self.s += s
-
-    def getExprStack(self):
-        return [('string', self.s), ]
-
-    def __str__(self):
-        return str(self.getExprStack())
-
-
 def get_allowed_channels(request, channels):
     if not request.user.is_authenticated():
         raise PermissionDenied('Not allowed to subscribe nor to publish on the Websocket!')
@@ -348,21 +282,21 @@ def update_input(article, name, owner, val, ts=None, curr=None):
         if curr.val == val:
             return
 
-        logger.debug("update Input {}:{} '{}' -> '{}'".format(article.pk, name, trims(curr.val), trims(val)))
+        logger.debug("update Input {} -> '{}'".format(curr, trims(val)))
         with transaction.atomic():
             curr.newer = models.Input.objects.create(article=article, name=name, owner=owner, val=val, created=ts)
             curr.save()
 
     except models.Input.DoesNotExist:
-        logger.info("create Input {}:{} '{}'".format(article.pk, name, utils.trims(val)))
-        models.Input.objects.create(article=article, name=name, owner=owner, val=val, created=ts)
+        i = models.Input.objects.create(article=article, name=name, owner=owner, val=val, created=ts)
+        logger.info("create Input {}".format(i))
 
     # run related tasks
     for dep in models.InputDependency.objects.filter(article=article, name=name):
         tasks.evaluate_idef.delay(dep.idef.pk, owner.pk if owner else None)
 
     # send notification to displays
-    msg = RedisMessage("{}:{}:{}".format(article.pk, name, owner.pk if owner else -1))
+    msg = RedisMessage("{}:{}:{}".format(article.pk, name, owner.pk if owner else ""))
     redis_publisher = RedisPublisher(facility="django-wiki-forms", broadcast=True)
     redis_publisher.publish_message(msg)
 
@@ -383,12 +317,12 @@ def update_inputdef(article, name, expr):
         pass
 
     deps = evaluate_deps(expr)
+    per_user = False
+    for a, n, p in deps:
+        per_user |= p
+
 
     with transaction.atomic():
-        per_user = False
-        for a, n, p in deps:
-            per_user |= p
-
         idef = models.InputDefinition.objects.create(article=article, name=name, expr=expr_json, per_user=per_user, created=article.modified)
 
         for article_pk, name, per_user in deps:
@@ -402,7 +336,6 @@ def update_inputdef(article, name, expr):
         tasks.evaluate_idef.delay(idef.pk, i.owner.pk)
 
 
-
 def fix_idef():
     models.InputDefinition.objects.all().delete()
 
@@ -414,6 +347,19 @@ def fix_idef():
             update_inputdef(article, name, val.getExprStack())
 
 
+def fix_number_val():
+    for i in models.Input.objects.all():
+        try:
+            old = i.val
+            new = json.dumps(int(json.loads(i.val)))
+
+            if old != new:
+                logger.warn("{}: change to number {} -> {}".format(i, old, new))
+                i.val = new
+                i.save()
+        except:
+            pass
+
 def fix_input_newer():
     for i in models.Input.objects.all():
         n = models.Input.objects.filter(article=i.article, owner=i.owner, name=i.name, created__gt=i.created).order_by('created').first()
@@ -423,7 +369,6 @@ def fix_input_newer():
             i.save()
 
 
-
 def trims(s):
-    s=str(s)
+    s = str(s)
     return (s[:25] + '..') if len(s) > 25 else s

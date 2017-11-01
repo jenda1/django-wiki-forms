@@ -55,8 +55,8 @@ function receiveMessage(msg) {
     $(e).attr('data-listen').split(",").some(function(i) {
       var l = i.split(':');
       if (l[0] == m[0] &&
-          l[1] == m[1] && 
-          (l[2] == '' || m[2] == USER_ID)) {
+          l[1] == m[1] &&
+          (m[2] == '' || m[2] == USER_ID)) {
         wiki_display_data($(e));
         return true;
       } else {

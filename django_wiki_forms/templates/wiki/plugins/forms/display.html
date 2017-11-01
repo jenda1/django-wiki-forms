@@ -2,5 +2,5 @@
       {% if not preview %}
       data-id="{{ display_id }}"
       {% endif %}
-      data-listen="{% for f in fields %}{{f.article_pk}}:{{f.name}},{% endfor %}"
+      data-listen="{% for f in fields %}{{f.article_pk}}:{{f.name}}{% if not forloop.last %},{% endif %}{% endfor %}"
       ><i class="fa fa-spinner fa-spin" style="font-size:24px"></i></span>

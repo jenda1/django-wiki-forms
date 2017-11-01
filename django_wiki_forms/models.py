@@ -12,7 +12,6 @@ from wiki.core import compat
 from django.contrib.auth import get_user_model
 
 import logging
-from . import tasks
 from . import utils
 import ipdb  # NOQA
 
@@ -54,7 +53,12 @@ class Input(ArticlePlugin):
         get_latest_by = 'created'
 
     def __str__(self):
-        return _('{}{}:{}{}: {}').format("" if self.newer is None else "#", self.article.pk, self.name, "" if self.owner is None else "@{}".format(self.owner), (self.val[:75] + '..') if len(self.val) > 75 else self.val)
+        return _('{}{}:{}{}: {}').format(
+            "" if self.newer is None else "#",
+            self.article.pk,
+            self.name,
+            "" if self.owner is None else "@{}".format(self.owner),
+            utils.trims(self.val))
 
 
 class InputDefinition(models.Model):
