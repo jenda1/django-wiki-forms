@@ -10,6 +10,6 @@
 
 <div class="tab-content">
   {% for v in data %}
-  <div id="{{uid}}-{{forloop.counter}}" class="tab-pane fade{% if forloop.first %} in active{% endif %}">{{ v.content|codehilite }}</div>
+  <div id="{{uid}}-{{forloop.counter}}" class="tab-pane fade{% if forloop.first %} in active{% endif %}">{{ v.content|codehilite:v.type }}</div>
   {% endfor %}
 </div>

@@ -110,7 +110,8 @@ class DisplayDataView(ArticleMixin, LoginRequiredMixin, View):
             data = list()
             for i, f in enumerate(fields):
                 a = self.article if f['article_pk'] == 'this' else Article.objects.get(pk=f['article_pk'])
-                for v in utils.evaluate_field(a, f['name'], request.user):
+                v = utils.get_input_val(a, f['name'], request.user)
+                if v:
                     data += v
 
             c = dict(data=data)

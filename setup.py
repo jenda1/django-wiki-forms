@@ -30,7 +30,7 @@ test_requirements = [
 
 setup(
     name='django_wiki_forms',
-    version='0.1.0',
+    version='0.2.0',
     description="Python django_wiki_forms contains plugin to create forms in the wiki pages.",
     long_description=readme + '\n\n' + history,
     author="Jan Lána",

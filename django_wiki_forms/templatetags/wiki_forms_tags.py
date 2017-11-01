@@ -8,9 +8,7 @@ from django.contrib.auth.models import User
 import pprint
 import uuid
 
-from pygments import highlight
-from pygments.lexers import guess_lexer, TextLexer
-from pygments.formatters import HtmlFormatter
+import pygments
 
 
 register = template.Library()
@@ -38,16 +36,16 @@ def allowed_input_types():
 
 @register.filter
 @stringfilter
-def codehilite(value):
+def codehilite(value, arg):
     try:
-        lexer = guess_lexer(value)
+        lexer = pygments.lexers.get_lexer_for_mimetype(arg)
     except ValueError:
-        lexer = TextLexer()
+        try:
+            lexer = pygments.lexers.guess_lexer(value)
+        except ValueError:
+            lexer = pygments.lexers.TextLexer()
 
-    formatter = HtmlFormatter(cssclass="codehilite")
-    return mark_safe(highlight(value, lexer, formatter))
-
-
+    return mark_safe(pygments.highlight(value, lexer, pygments.formatters.HtmlFormatter(cssclass="codehilite")))
 
 
 @register.simple_tag

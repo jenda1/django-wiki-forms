@@ -275,21 +275,18 @@ def update_input(article, name, owner, val, ts=None, curr=None):
     if ts is None:
         ts = timezone.now()
 
-    try:
-        if curr is None:
-            curr = models.Input.objects.get(article=article, name=name, owner=owner, newer__isnull=True)
-
-        if curr.val == val:
-            return
-
-        logger.debug("update Input {} -> '{}'".format(curr, trims(val)))
+    if curr is None:
         with transaction.atomic():
+            curr = models.Input.objects.filter(article=article, name=name, owner=owner, newer__isnull=True)
+            assert len(curr) <= 1
+
+            if len(curr) == 1 and curr[0].val == val:
+                return
+
+            logger.debug("update Input {} -> '{}'".format(curr[0] if len(curr) else "None", trims(val)))
+
             curr.newer = models.Input.objects.create(article=article, name=name, owner=owner, val=val, created=ts)
             curr.save()
-
-    except models.Input.DoesNotExist:
-        i = models.Input.objects.create(article=article, name=name, owner=owner, val=val, created=ts)
-        logger.info("create Input {}".format(i))
 
     # run related tasks
     for dep in models.InputDependency.objects.filter(article=article, name=name):
@@ -359,6 +356,18 @@ def fix_number_val():
                 i.save()
         except:
             pass
+
+
+def fix_files(article_pk, name):
+    for i in models.Input.objects.filter(article__pk=article_pk, name=name, newer=None):
+        v = json.loads(i.val)
+        if type(v) == str:
+            logger.warn("{}: convert to java file(s)".format(i))
+            v = [dict(name="Unknown.java", size=len(v), type='text/x-java', content=v)]
+            i.val = json.dumps(v)
+            i.save()
+
+
 
 def fix_input_newer():
     for i in models.Input.objects.all():
