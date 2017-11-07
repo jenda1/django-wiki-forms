@@ -113,6 +113,10 @@ def evaluate_deps(expr):
             assert n == 1
             return args[0]
 
+        elif val == 'ifdef':
+            assert n == 3
+            return args[0] + args[1] + args[2]
+
         else:
             assert False
 
@@ -148,6 +152,14 @@ def evaluate_expr(expr, owner, idefs):  # NOQA
         elif val == 'len':
             assert n == 1
             return Value('int', len(args[0].getVal()))
+
+        elif val == 'ifdef':
+            assert n == 3
+
+            if args[2] is None or args[2].getVal() is None:
+                return args[0]
+            else:
+                return args[1]
 
         assert False
 
