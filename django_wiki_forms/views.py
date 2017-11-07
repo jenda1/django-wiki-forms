@@ -128,7 +128,6 @@ class DisplayDataView(ArticleMixin, LoginRequiredMixin, View):
                         data[user][x] = v[user]
 
             c = dict(data=dict(data), columns=columns)
-            print(c)
 
         else:
             c = dict()

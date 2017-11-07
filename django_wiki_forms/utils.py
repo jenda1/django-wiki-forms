@@ -12,6 +12,7 @@ from . import tasks
 from django.utils import timezone
 from ws4redis.publisher import RedisPublisher
 from ws4redis.redis_store import RedisMessage
+from django.contrib.auth.models import User
 
 import logging
 import ipdb  # NOQA
@@ -28,27 +29,60 @@ fident = pp.Word(pp.alphas, pp.alphas+pp.nums+"_")
 fnumber = pp.Combine(pp.Word(pp.nums) + pp.Optional("." + pp.Optional(pp.Word(pp.nums))))
 
 class Value(object):
-    def __init__(self, vtype, data):
-        self.vtype = vtype
+    def __init__(self, data):
         self.data = data
 
+class ValueFloat(Value):
     def getVal(self):
-        if self.vtype == 'float':
-            return float(self.data)
-        elif self.vtype == 'int':
-            return int(self.data)
-        elif self.vtype == 'str':
-            return str(self.data)
-        elif self.vtype == 'input':
+        return float(self.data)
+
+class ValueInt(Value):
+    def getVal(self):
+        return int(self.data)
+
+class ValueStr(Value):
+    def getVal(self):
+        return str(self.data)
+
+class ValueInput(Value):
+    def __init__(self, article_pk, name, owner, idefs):
+        self.article_pk = article_pk
+        self.name = name
+        self.owner = owner
+        self.idefs = idefs
+
+        try:
+            self.idef = models.InputDefinition.objects.get(article__pk=article_pk, name=name)
+        except models.InputDefinition.DoesNotExist:
+            self.idef = None
+
+        return super(ValueInput, self).__init__(None)
+
+    def getVal(self):
+        if self.idef:
+            return evaluate_idef(self.idef, self.owner, self.idefs)
+        else:
             try:
-                i = models.Input.objects.get(**self.data)
+                i = models.Input.objects.get(article__pk=self.article_pk, name=self.name, newer=None, owner=self.owner)
                 return json.loads(i.val)
             except models.Input.DoesNotExist:
                 return None
 
-        elif self.vtype == 'input_user_list':
-            i = models.Input.objects.filter(**self.data)
-            return {x.owner.pk: json.loads(x.val) for x in i.all()}
+
+class ValueInputAll(Value):
+    def getVal(self):
+        out = dict()
+        if self.data.idef:
+            for u in User.objects.all():
+                v = evaluate_idef(self.data.idef, u, self.data.idefs)
+                if v:
+                    out[u.pk] = v
+
+        else:
+            for i in models.Input.objects.filter(article__pk=self.data.article_pk, name=self.data.name, newer=None).all():
+                out[i.owner.pk] = json.loads(i.val)
+
+        return out
 
 
 def evaluate_deps(expr):
@@ -90,136 +124,100 @@ def evaluate_deps(expr):
     assert False
 
 
-def evaluate_expr(expr, owner):  # NOQA
+def evaluate_expr(expr, owner, idefs):  # NOQA
     op, val = expr.pop()
 
-    if op in ['float', 'int', 'str']:
-        return Value(op, val)
-
+    if op == 'float':
+        return ValueFloat(val)
+    elif op == 'int':
+        return ValueInt(val)
+    elif op == 'str':
+        return ValueStr(val)
     elif op == 'field':
-        return Value('input', dict(
-            article__pk=val['article_pk'],
-            name=val['name'],
-            owner=owner,
-            newer__isnull=True))
+        return ValueInput(val['article_pk'], val['name'], owner, idefs)
 
     elif op == 'fn':
         n = expr.pop()
-
-        args = list()
-        for i in range(n):
-            args.insert(0, evaluate_expr(expr, owner))
+        args = [evaluate_expr(expr, owner, idefs) for i in range(n)]
 
         if val == 'all':
             assert n == 1
-            assert args[0].vtype == 'input'
-
-            return Value('input_user_list', dict(
-                article__pk=args[0].data['article__pk'],
-                name=args[0].data['name'],
-                newer__isnull=True))
+            assert type(args[0]) == ValueInput
+            return ValueInputAll(args[0])
 
         elif val == 'len':
             assert n == 1
             return Value('int', len(args[0].getVal()))
 
-        elif val == 'sum':
-            assert n == 1
-            assert args[0].vtype == 'input_user_list'
-
-            out = None
-
-            for u, v in args[0].getVal().items():
-                if type(v) in [int, float]:
-                    out = v if out is None else out + v
-                elif type(v) in [str]:
-                    out = len(v) if out is None else out + len(v)
-                else:
-                    logger.info("==== TYPE ===" + str(type(v)))
-
-            # FIXME: if None, return None!
-            return Value('int' if type(out) is int else 'float', 0 if out is None else out)
-
         assert False
 
     elif op == 'op':
-        op2 = evaluate_expr(expr, owner)
-        op1 = evaluate_expr(expr, owner)
+        op2 = evaluate_expr(expr, owner, idefs)
+        op1 = evaluate_expr(expr, owner, idefs)
 
-        out = opn[val](op1.getVal(), op2.getVal())
+        val1 = op1.getVal() if op1 else None
+        val2 = op2.getVal() if op2 else None
+
+        if val1 is None or val2 is None:
+            return None
+
+        try:
+            out = opn[val](val1, val2)
+        except Exception as e:
+            logger.warning("evaluation failed {} {} {} : {}".format(val1, val, val2, e))
+            return None
+
         if type(out) is int:
-            return Value('int', out)
+            return ValueInt(out)
         elif type(out) is float:
-            return Value('float', out)
+            return ValueFloat(out)
         else:
-            return Value('str', out)
+            return ValueStr(out)
 
 
-def evaluate_idef(idef, owner):  # NOQA
-    q = models.Input.objects.filter(article=idef.article, name=idef.name, newer__isnull=True, created__gte=idef.created)
+def notify(article, name, owner):
+    msg = RedisMessage("{}:{}:{}".format(article.pk, name, owner.pk if owner else ""))
+    redis_publisher = RedisPublisher(facility="django-wiki-forms", broadcast=True)
+    redis_publisher.publish_message(msg)
+
+
+
+def evaluate_idef(idef, owner, idefs=list()):  # NOQA
+    assert idef not in idefs
     try:
-        curr = q.get(owner=owner) if idef.per_user else q.get(owner__isnull=True)
-        curr_ts = curr.created
-    except models.Input.DoesNotExist:
-        curr = None
-        curr_ts = None
-
-    for dep in idef.inputdependency_set.all():
-        q = models.Input.objects.filter(article=dep.article, name=dep.name, newer__isnull=True)
-
-        if dep.per_user:
-            try:
-                ts = q.get(owner=owner).created
-                if not curr_ts or ts > curr_ts:
-                    curr_ts = ts
-            except models.Input.DoesNotExist:
-                return curr
-        else:
-            v = q.filter(owner__isnull=False).order_by('created').last()
-            if v and (not curr_ts or v.created > curr_ts):
-                curr_ts = v.created
-
-    if curr and curr_ts <= curr.created:
-        return curr
+        return json.loads(idef.values.get(owner=owner if idef.per_user else None).val)
+    except models.InputDefValue.DoesNotExist:
+        pass
 
     expr = json.loads(idef.expr)
-    val = evaluate_expr(expr, owner).getVal()
+    val = evaluate_expr(expr, owner if idef.per_user else None, idefs + [idef])
+    val = val.getVal() if val else val
 
     if val:
-        update_input(idef.article, idef.name, owner if idef.per_user else None, json.dumps(val), curr_ts, curr)
+        assert not idef.values.filter(owner=owner if idef.per_user else None).exists()
 
-    return val
+        idef.values.create(owner=owner if idef.per_user else None, val=json.dumps(val))
+        notify(idef.article, idef.name, owner if idef.per_user else None)
+        return val
 
 
 def get_input_val(article, name, owner):
     try:
         idef = models.InputDefinition.objects.get(article=article, name=name)
-    except models.InputDefinition.DoesNotExist:
-        idef = None
 
-    try:
-        if idef and not idef.per_user:
-            i = models.Input.objects.get(article=article, name=name, newer__isnull=True, owner__isnull=True)
-        else:
-            i = models.Input.objects.get(article=article, name=name, newer__isnull=True, owner=owner)
-
-        return json.loads(i.val)
-
-    except models.Input.DoesNotExist:
-        if idef:
+        try:
+            idv = idef.values.get(owner=owner if idef.per_user else None)
+            return json.loads(idv.val) if idv.val else None
+        except models.InputDefValue.DoesNotExist:
             tasks.evaluate_idef.delay(idef.pk, owner.pk)
+    except models.InputDefinition.DoesNotExist:
 
+        try:
+            i = models.Input.objects.get(article=article, name=name, newer=None, owner=owner)
+            return json.loads(i.val)
 
-class DefFn(object):
-    def __init__(self, args):
-        self.args = [x.strip() for x in args.split(",")]
-        self.expr = ""
-
-    def append(self, expr):
-        self.expr += expr
-
-    def get_deps(self):
-        return list()
+        except models.Input.DoesNotExist:
+            return None
 
 
 class DefVarExpr(object):
@@ -271,31 +269,33 @@ def get_allowed_channels(request, channels):
     if not request.user.is_authenticated():
         raise PermissionDenied('Not allowed to subscribe nor to publish on the Websocket!')
 
-def update_input(article, name, owner, val, ts=None, curr=None):
+
+def update_input(article, name, owner, val=None, ts=None):
     if ts is None:
         ts = timezone.now()
 
-    if curr is None:
-        with transaction.atomic():
-            curr = models.Input.objects.filter(article=article, name=name, owner=owner, newer__isnull=True)
-            assert len(curr) <= 1
+    with transaction.atomic():
+        tmp = models.Input.objects.filter(article=article, name=name, owner=owner, newer=None)
 
-            if len(curr) == 1 and curr[0].val == val:
+        if len(tmp) == 1:
+            curr = tmp[0]
+            if tmp[0].val == val:
                 return
+        else:
+            assert len(tmp) == 0
 
-            logger.debug("update Input {} -> '{}'".format(curr[0] if len(curr) else "None", trims(val)))
+        logger.debug("update Input {} -> '{}'".format(curr, trims(val)))
 
-            curr.newer = models.Input.objects.create(article=article, name=name, owner=owner, val=val, created=ts)
+        new = models.Input.objects.create(article=article, name=name, owner=owner, val=val, created=ts)
+        if curr:
+            curr.newer = new
             curr.save()
 
-    # run related tasks
+    # delete obsolete results
     for dep in models.InputDependency.objects.filter(article=article, name=name):
-        tasks.evaluate_idef.delay(dep.idef.pk, owner.pk if owner else None)
+        dep.idef.values.filter(owner=owner if dep.idef.per_user else None).delete()
 
-    # send notification to displays
-    msg = RedisMessage("{}:{}:{}".format(article.pk, name, owner.pk if owner else ""))
-    redis_publisher = RedisPublisher(facility="django-wiki-forms", broadcast=True)
-    redis_publisher.publish_message(msg)
+    notify(article, name, owner)
 
 
 
@@ -308,6 +308,7 @@ def update_inputdef(article, name, expr):
             return
 
         logger.info("updated idef {}:{}".format(article.pk, name))
+
         curr.delete()
     except models.InputDefinition.DoesNotExist:
         logger.info("create idef {}:{}".format(article.pk, name))
@@ -320,7 +321,7 @@ def update_inputdef(article, name, expr):
 
 
     with transaction.atomic():
-        idef = models.InputDefinition.objects.create(article=article, name=name, expr=expr_json, per_user=per_user, created=article.modified)
+        idef = models.InputDefinition.objects.create(article=article, name=name, expr=expr_json, per_user=per_user)
 
         for article_pk, name, per_user in deps:
             models.InputDependency.objects.create(
@@ -328,9 +329,6 @@ def update_inputdef(article, name, expr):
                 article=wiki_models.Article.objects.get(pk=article_pk),
                 name=name,
                 per_user=per_user)
-
-    for i in models.Input.objects.filter(article=article, name=name):
-        tasks.evaluate_idef.delay(idef.pk, i.owner.pk)
 
 
 def fix_idef():
@@ -379,5 +377,6 @@ def fix_input_newer():
 
 
 def trims(s):
-    s = str(s)
-    return (s[:25] + '..') if len(s) > 25 else s
+    if s:
+        s = str(s)
+        return (s[:25] + '..') if len(s) > 25 else s

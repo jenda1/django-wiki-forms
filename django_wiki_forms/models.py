@@ -62,8 +62,6 @@ class Input(ArticlePlugin):
 
 
 class InputDefinition(models.Model):
-    created = models.DateTimeField()
-
     article = models.ForeignKey(wiki_models.Article, on_delete=models.CASCADE)
     name = models.CharField(max_length=28)
     expr = models.TextField()
@@ -77,22 +75,48 @@ class InputDefinition(models.Model):
         return '{}:{}'.format(self.article, self.name)
 
 
+class InputDefValue(models.Model):
+    idef = models.ForeignKey(InputDefinition, related_name='values', on_delete=models.CASCADE)
+
+    owner = models.ForeignKey(
+        compat.USER_MODEL, verbose_name=_('owner'),
+        blank=True, null=True,
+        help_text=_('The author of the input. The owner always has both read access.'),
+        on_delete=models.CASCADE)
+
+    val = models.TextField(blank=True, null=True)
+
+    def __str__(self):
+        return _('{}:{}{}: {}').format(
+            self.idef.article.pk,
+            self.idef.name,
+            "" if self.owner is None else "@{}".format(self.owner),
+            utils.trims(self.val))
+
+    class Meta:
+        unique_together = ('idef', 'owner')
+        verbose_name = _('Calculated Input')
+        verbose_name_plural = _('Calculated Inputs')
+        get_latest_by = 'created'
+
+
+
 class InputDependency(models.Model):
-    idef = models.ForeignKey(InputDefinition, on_delete=models.CASCADE)
+    idef = models.ForeignKey(InputDefinition, related_name='dependencies', on_delete=models.CASCADE)
 
     article = models.ForeignKey(wiki_models.Article, on_delete=models.CASCADE)
     name = models.CharField(max_length=28)
 
     per_user = models.BooleanField()
 
+    depend_idef = models.ForeignKey(InputDefinition, related_name='depend_on', blank=True, null=True, on_delete=models.CASCADE)
 
     def __str__(self):
         return '{}:{}: {}:{}{}'.format(
             self.idef.article.pk,
             self.idef.name,
             self.article.pk,
-            self.name,
-            "" if self.per_user else "*")
+            self.name)
 
 
 @disable_signal_for_loaddata
@@ -104,7 +128,7 @@ def post_article_revision_save(**kwargs):
 
     old = InputDefinition.objects.filter(article=arev.article).exclude(name__in=md.defs)
     if old.exists():
-        logger.info("delete definition(s) {}: {}".format(arev.article, [str(o) for o in old]))
+        logger.info("delete definition(s) {}".format([str(o) for o in old]))
         old.delete()
 
     for name, val in md.defs.items():

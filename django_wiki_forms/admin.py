@@ -18,5 +18,11 @@ class InputDefinitionAdmin(admin.ModelAdmin):
     list_filter = ('article', 'name')
 
 
+class InputDefValueAdmin(admin.ModelAdmin):
+    list_display = ('pk', 'idef', 'owner', 'val')
+    list_filter = ('idef', 'owner')
+
+
 admin.site.register(models.Input, InputAdmin)
 admin.site.register(models.InputDefinition, InputDefinitionAdmin)
+admin.site.register(models.InputDefValue, InputDefValueAdmin)
