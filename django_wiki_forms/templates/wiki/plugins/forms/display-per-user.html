@@ -13,7 +13,7 @@
     <tr>
       <th>{% get_user_from_userid u %}</th>
       {% for d in ds %}
-      <td>{% include "wiki/plugins/forms/display-default.html" with value=d %}</td>
+      <td>{% include "wiki/plugins/forms/display-default.html" with data=d %}</td>
       {% endfor %}
     </tr>
     {% endfor %}

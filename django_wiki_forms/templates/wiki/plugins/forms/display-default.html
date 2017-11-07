@@ -1,30 +1,22 @@
 {% load wiki_forms_tags %}
 
-{% with type=value|get_data_type %}
+{% with type=data|get_data_type %}
 {% get_uuid as uid %}
 
-{% if type == 'list' %}
-{% for v in value %}{% include "wiki/plugins/forms/display-default.html" with value=v %}{% endfor %}
-
-{% elif type == 'dict' and value.name and 'text/' in value.type %}
-<h4>{{value.name}}</h4>
-<textarea id="{{uid}}">{{ value.content }}</textarea><br/>
-<script>
-  CodeMirror.fromTextArea(document.getElementById("{{uid}}"), {
-    lineNumbers: true,
-    matchBrackets: true,
-    mode: "{{value.type}}",
-    readOnly: true
-  });
-</script>
+{% if type == 'NoneType' %}
+-
+{% elif type == 'list' and data.0.name and data.0.content %}
+{% include "wiki/plugins/forms/display-files.html" with data=data %}
+{% elif type == 'list' %}
+{% include "wiki/plugins/forms/display-list.html" with data=data %}
 {% elif type == 'str' %}
-{{ value }}
+{{ data }}
 {% elif type == 'int' %}
-{{ value }}
+{{ data }}
 {% elif type == 'float' %}
-{{ value }}
+{{ data }}
 {% else %}
 <pre>{{ type }}</pre>
-<pre>{{ value|pprint }}</pre>
+<pre>{{ data|pprint }}</pre>
 {% endif %}
 {% endwith %}
