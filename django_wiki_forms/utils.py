@@ -13,6 +13,7 @@ from django.utils import timezone
 from ws4redis.publisher import RedisPublisher
 from ws4redis.redis_store import RedisMessage
 from django.contrib.auth.models import User
+import itertools
 
 import logging
 import ipdb  # NOQA
@@ -85,6 +86,15 @@ class ValueInputAll(Value):
         return out
 
 
+class ValueDocker(Value):
+    def __init__(self, args):
+        self.docker = models.InputDocker.objects.get_or_create(args=json.dumps(args))
+        return super(ValueInput, self).__init__(None)
+
+   def getVal(self):
+       return json
+
+
 def evaluate_deps(expr):
     op, val = expr.pop()
 
@@ -115,7 +125,12 @@ def evaluate_deps(expr):
 
         elif val == 'ifdef':
             assert n == 3
-            return args[0] + args[1] + args[2]
+            return itertools.chain.from_iterable(args)
+
+        elif val == 'docker':
+            assert n >= 1
+            return itertools.chain.from_iterable(args)
+
 
         else:
             assert False
@@ -161,6 +176,10 @@ def evaluate_expr(expr, owner, idefs):  # NOQA
             else:
                 return args[1]
 
+        elif val == 'docker':
+            assert n >= 1
+            return ValueDocker(args)
+
         assert False
 
     elif op == 'op':
@@ -202,14 +221,20 @@ def evaluate_idef(idef, owner, idefs=list()):  # NOQA
         pass
 
     expr = json.loads(idef.expr)
-    val = evaluate_expr(expr, owner if idef.per_user else None, idefs + [idef])
-    val = val.getVal() if val else val
+    val = evaluate_expr(expr, owner if idef.per_user else None, [idef] + idefs)
+    if not val:
+        return
 
+    val = val.getVal()
     if val:
-        assert not idef.values.filter(owner=owner if idef.per_user else None).exists()
+        # check if another thread create the value already
+        obj, created = models.InputDefValue.objects.update_or_create(
+            idef=idef, owner=owner if idef.per_user else None,
+            defaults={'val': json.dumps(val)})
 
-        idef.values.create(owner=owner if idef.per_user else None, val=json.dumps(val))
-        notify(idef.article, idef.name, owner if idef.per_user else None)
+        if created:
+            notify(idef.article, idef.name, owner if idef.per_user else None)
+
         return val
 
 
