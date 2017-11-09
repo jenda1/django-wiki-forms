@@ -3,7 +3,7 @@ from __future__ import absolute_import, unicode_literals
 
 import re
 import markdown
-
+import ipdb  # NOQA
 from .. import utils
 #
 DEFFN_RE = re.compile(
@@ -47,17 +47,17 @@ class DefPreprocessor(markdown.preprocessors.Preprocessor):
 
 
     def process_line(self, line):
-        if self.in_let:
+        if self.in_let is not None:
             m = LET_END_RE.match(line)
             if m:
                 self.in_let.append(m.group('prefix'))
-                self.markdown.defs[self.in_let_target] = utils.DefVarExpr(self.markdown.article, self.in_let)
+                self.markdown.defs[self.in_let_target] = utils.DefVarStr(self.markdown.article, "\n".join(self.in_let))
                 self.in_let = None
 
                 return self.process_line(m.group('suffix'))
 
             else:
-                self.in_let.append(line+"\n")
+                self.in_let.append(line)
                 return ""
 
         m = LETVAR_INLINE_RE.match(line)
@@ -68,7 +68,7 @@ class DefPreprocessor(markdown.preprocessors.Preprocessor):
 
         m = LETVAR_RE.match(line)
         if m:
-            self.in_let = utils.DefVarStr()
+            self.in_let = list()
             self.in_let_target = m.group('target')
 
             return m.group('prefix') + self.process_line(m.group('suffix'))

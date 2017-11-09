@@ -119,6 +119,28 @@ class InputDependency(models.Model):
             self.name)
 
 
+class InputDocker(models.Model):
+    idef = models.ForeignKey(InputDefinition, on_delete=models.CASCADE)
+    owner = models.ForeignKey(
+        compat.USER_MODEL, verbose_name=_('owner'),
+        blank=True, null=True,
+        on_delete=models.CASCADE)
+
+    # FIXME: add image name validators!!!!
+    image = models.CharField(max_length=255)
+    scenario = models.CharField(max_length=255)
+    args = models.TextField(blank=True, null=True)
+
+    container_id = models.CharField(max_length=64, blank=True, null=True)
+
+    val = models.TextField(blank=True, null=True)
+
+    class Meta:
+        unique_together = ('idef', 'owner', 'image', 'scenario', 'args')
+
+
+
+
 @disable_signal_for_loaddata
 def post_article_revision_save(**kwargs):
     arev = kwargs['instance']

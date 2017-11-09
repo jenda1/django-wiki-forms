@@ -87,15 +87,19 @@ class ValueInputAll(Value):
 
 
 class ValueDocker(Value):
-    def __init__(self, args):
-        self.docker = models.InputDocker.objects.get_or_create(args=json.dumps(args))
-        return super(ValueInput, self).__init__(None)
+    def __init__(self, idef, owner, image, scenario, args):
+        self.docker, created = models.InputDocker.objects.get_or_create(
+            idef=idef, owner=owner if idef.per_user else None, image=image, scenario=scenario, args=json.dumps(args) if args else None)
+        if created:
+            tasks.run_docker.delay(self.docker.pk)
+        return super(ValueDocker, self).__init__(None)
 
-   def getVal(self):
-       return json
+    def getVal(self):
+        return "" if self.docker.val is None else json.loads(self.docker.val)
 
 
-def evaluate_deps(expr):
+def evaluate_deps(expr):  # NOQA
+    print(expr)
     op, val = expr.pop()
 
     if op in ['float', 'int', 'str']:
@@ -125,12 +129,11 @@ def evaluate_deps(expr):
 
         elif val == 'ifdef':
             assert n == 3
-            return itertools.chain.from_iterable(args)
+            return list(itertools.chain.from_iterable(args))
 
         elif val == 'docker':
             assert n >= 1
-            return itertools.chain.from_iterable(args)
-
+            return list(itertools.chain.from_iterable(args))
 
         else:
             assert False
@@ -177,8 +180,8 @@ def evaluate_expr(expr, owner, idefs):  # NOQA
                 return args[1]
 
         elif val == 'docker':
-            assert n >= 1
-            return ValueDocker(args)
+            assert n >= 2
+            return ValueDocker(idefs[0], owner, args[-1].getVal(), args[-2].getVal(), [x.getVal() for x in reversed(args[:-2])])
 
         assert False
 
@@ -255,6 +258,18 @@ def get_input_val(article, name, owner):
 
         except models.Input.DoesNotExist:
             return None
+
+
+class DefVarStr(object):
+    def __init__(self, article, expr):
+        self.article = article
+        self.expr = expr
+
+    def getExprStack(self):
+        return [('str', self.expr)]
+
+    def __str__(self):
+        return str(self.getExprStack())
 
 
 class DefVarExpr(object):
