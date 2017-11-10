@@ -124,6 +124,10 @@ $(document).ready(function() {
     wiki_input_post_data($(this), $(this).val());
   }))
 
+  $('textarea[data-id].dw-input').keyup(update_later(function(){
+    wiki_input_post_data($(this), $(this).val());
+  }))
+
 
 
 

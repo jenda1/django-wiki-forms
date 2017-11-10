@@ -85,6 +85,28 @@ class ValueInputAll(Value):
 
         return out
 
+class ValueInputAllUpdates(Value):
+    def __init__(self, data, data2):
+        self.data2 = data2
+        return super(ValueInputAllUpdates, self).__init__(data)
+
+    def getVal(self):
+        out = dict()
+        if self.data.idef:
+            for u in User.objects.all():
+                v = evaluate_idef(self.data.idef, u, self.data.idefs)
+                if v:
+                    out[u.pk] = v
+
+        else:
+            for i in models.Input.objects.filter(article__pk=self.data.article_pk, name=self.data.name, newer=None).all():
+                if models.Input.objects.filter(article__pk=self.data2.article_pk, name=self.data2.name, newer=None, owner=i.owner, created__gte=i.created).exists():
+                    continue
+
+                out[i.owner.pk] = json.loads(i.val)
+
+        return out
+
 
 class ValueDocker(Value):
     def __init__(self, idef, owner, image, scenario, args):
@@ -132,8 +154,17 @@ def evaluate_deps(expr):  # NOQA
             return list(itertools.chain.from_iterable(args))
 
         elif val == 'docker':
-            assert n >= 1
+            assert n >= 2
             return list(itertools.chain.from_iterable(args))
+
+        elif val == 'all_updates':
+            assert n == 2
+
+            if type(args[0]) is list and type(args[1]) is list:
+                return [(args[0][0][0], args[0][0][1], False), (args[1][0][0], args[1][0][1], False)]
+            else:
+                return args[0] + args[1]
+
 
         else:
             assert False
@@ -183,6 +214,13 @@ def evaluate_expr(expr, owner, idefs):  # NOQA
             assert n >= 2
             return ValueDocker(idefs[0], owner, args[-1].getVal(), args[-2].getVal(), [x.getVal() for x in reversed(args[:-2])])
 
+        elif val == 'all_updates':
+            assert n == 2
+            assert type(args[0]) == ValueInput
+            assert type(args[1]) == ValueInput
+
+            return ValueInputAllUpdates(args[1], args[0])
+
         assert False
 
     elif op == 'op':
@@ -231,9 +269,10 @@ def evaluate_idef(idef, owner, idefs=list()):  # NOQA
     val = val.getVal()
     if val:
         # check if another thread create the value already
-        obj, created = models.InputDefValue.objects.update_or_create(
-            idef=idef, owner=owner if idef.per_user else None,
-            defaults={'val': json.dumps(val)})
+        with transaction.atomic():
+            obj, created = models.InputDefValue.objects.update_or_create(
+                idef=idef, owner=owner if idef.per_user else None,
+                defaults={'val': json.dumps(val)})
 
         if created:
             notify(idef.article, idef.name, owner if idef.per_user else None)
@@ -334,6 +373,7 @@ def update_input(article, name, owner, val=None, ts=None):
             if tmp[0].val == val:
                 return
         else:
+            curr = None
             assert len(tmp) == 0
 
         logger.debug("update Input {} -> '{}'".format(curr, trims(val)))
