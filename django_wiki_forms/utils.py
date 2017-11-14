@@ -121,7 +121,6 @@ class ValueDocker(Value):
 
 
 def evaluate_deps(expr):  # NOQA
-    print(expr)
     op, val = expr.pop()
 
     if op in ['float', 'int', 'str']:
@@ -256,28 +255,28 @@ def notify(article, name, owner):
 
 def evaluate_idef(idef, owner, idefs=list()):  # NOQA
     assert idef not in idefs
-    try:
-        return json.loads(idef.values.get(owner=owner if idef.per_user else None).val)
-    except models.InputDefValue.DoesNotExist:
-        pass
+
+    idv, created = idef.values.update_or_create(
+        owner=owner if idef.per_user else None,
+        defaults={'val': None})
+
+    if not created:
+        return json.loads(idv.val) if idv.val is not None else None
 
     expr = json.loads(idef.expr)
     val = evaluate_expr(expr, owner if idef.per_user else None, [idef] + idefs)
-    if not val:
+    val = None if val is None else val.getVal()
+
+    if val is None:
         return
 
-    val = val.getVal()
-    if val:
-        # check if another thread create the value already
-        with transaction.atomic():
-            obj, created = models.InputDefValue.objects.update_or_create(
-                idef=idef, owner=owner if idef.per_user else None,
-                defaults={'val': json.dumps(val)})
+    # check if another thread create the value already
+    idv.val = json.dumps(val)
+    idv.save()
 
-        if created:
-            notify(idef.article, idef.name, owner if idef.per_user else None)
+    notify(idef.article, idef.name, owner if idef.per_user else None)
 
-        return val
+    return val
 
 
 def get_input_val(article, name, owner):
@@ -290,7 +289,6 @@ def get_input_val(article, name, owner):
         except models.InputDefValue.DoesNotExist:
             tasks.evaluate_idef.delay(idef.pk, owner.pk)
     except models.InputDefinition.DoesNotExist:
-
         try:
             i = models.Input.objects.get(article=article, name=name, newer=None, owner=owner)
             return json.loads(i.val)
@@ -366,26 +364,24 @@ def update_input(article, name, owner, val=None, ts=None):
         ts = timezone.now()
 
     with transaction.atomic():
-        tmp = models.Input.objects.filter(article=article, name=name, owner=owner, newer=None)
+        i, created = models.Input.objects.get_or_create(
+            article=article, name=name, owner=owner,
+            defaults={'newer': None, 'val': val, 'created': ts})
 
-        if len(tmp) == 1:
-            curr = tmp[0]
-            if tmp[0].val == val:
+        if not created:
+            if i.val == val:
                 return
-        else:
-            curr = None
-            assert len(tmp) == 0
 
-        logger.debug("update Input {} -> '{}'".format(curr, trims(val)))
+            logger.debug("update Input {} -> '{}'".format(i, trims(val)))
+            i.newer = models.Input.objects.create(
+                article=article, name=name, owner=owner, val=val, created=ts)
 
-        new = models.Input.objects.create(article=article, name=name, owner=owner, val=val, created=ts)
-        if curr:
-            curr.newer = new
-            curr.save()
+            i.save()
 
     # delete obsolete results
     for dep in models.InputDependency.objects.filter(article=article, name=name):
         dep.idef.values.filter(owner=owner if dep.idef.per_user else None).delete()
+        notify(dep.idef.article, dep.idef.name, owner if dep.idef.per_user else None)
 
     notify(article, name, owner)
 
@@ -397,7 +393,7 @@ def update_inputdef(article, name, expr):
     try:
         curr = models.InputDefinition.objects.get(article=article, name=name)
         if curr.expr == expr_json:
-            return
+            return curr
 
         logger.info("updated idef {}:{}".format(article.pk, name))
 
@@ -411,27 +407,62 @@ def update_inputdef(article, name, expr):
     for a, n, p in deps:
         per_user |= p
 
-
     with transaction.atomic():
         idef = models.InputDefinition.objects.create(article=article, name=name, expr=expr_json, per_user=per_user)
 
         for article_pk, name, per_user in deps:
+            logger.info("add dependency {}: {}:{}".format(idef, article, name))
             models.InputDependency.objects.create(
                 idef=idef,
                 article=wiki_models.Article.objects.get(pk=article_pk),
                 name=name,
                 per_user=per_user)
 
+        return idef
+
+
+def expand_inputdef(idef, idef_dep=None, per_user=None):
+    if idef_dep is None:
+        for dep in idef.dependencies.all():
+            try:
+                curr = models.InputDefinition.objects.get(article=dep.article, name=dep.name)
+                expand_inputdef(idef, curr, dep.per_user)
+            except models.InputDefinition.DoesNotExist:
+                pass
+
+    else:
+        for dep in idef_dep.dependencies.all():
+            d, created = models.InputDependency.objects.get_or_create(
+                idef=idef,
+                article=dep.article,
+                name=dep.name,
+                per_user=per_user and dep.per_user)
+
+            if not created:
+                continue
+
+            logger.info("add recursive dependency {}: {}:{}".format(idef, dep.article, dep.name))
+
+            try:
+                curr = models.InputDefinition.objects.get(article=dep.article, name=dep.name)
+                expand_inputdef(idef, curr, per_user and dep.per_user)
+            except models.InputDefinition.DoesNotExist:
+                pass
+
 
 def fix_idef():
     models.InputDefinition.objects.all().delete()
 
+    idefs = list()
     for article in wiki_models.Article.objects.all():
         md = ArticleMarkdown(article, preview=True)
         md.convert(article.current_revision.content)
 
         for name, val in md.defs.items():
-            update_inputdef(article, name, val.getExprStack())
+            idefs.append(update_inputdef(article, name, val.getExprStack()))
+
+    for idef in idefs:
+        expand_inputdef(idef)
 
 
 def fix_number_val():

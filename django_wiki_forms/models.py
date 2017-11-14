@@ -84,6 +84,11 @@ class InputDefValue(models.Model):
         help_text=_('The author of the input. The owner always has both read access.'),
         on_delete=models.CASCADE)
 
+    created = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name=_('created'),
+    )
+
     val = models.TextField(blank=True, null=True)
 
     def __str__(self):
@@ -108,8 +113,6 @@ class InputDependency(models.Model):
     name = models.CharField(max_length=28)
 
     per_user = models.BooleanField()
-
-    depend_idef = models.ForeignKey(InputDefinition, related_name='depend_on', blank=True, null=True, on_delete=models.CASCADE)
 
     def __str__(self):
         return '{}:{}: {}:{}{}'.format(
@@ -148,13 +151,14 @@ def post_article_revision_save(**kwargs):
     md = ArticleMarkdown(arev.article, preview=True)
     md.convert(arev.content)
 
-    old = InputDefinition.objects.filter(article=arev.article).exclude(name__in=md.defs)
-    if old.exists():
-        logger.info("delete definition(s) {}".format([str(o) for o in old]))
-        old.delete()
+    with transaction.atomic():
+        old = InputDefinition.objects.filter(article=arev.article).exclude(name__in=md.defs)
+        if old.exists():
+            logger.info("delete definition(s) {}".format([str(o) for o in old]))
+            old.delete()
 
-    for name, val in md.defs.items():
-        utils.update_inputdef(arev.article, name, val.getExprStack())
+        for idef in [utils.update_inputdef(arev.article, name, val.getExprStack()) for name, val in md.defs.items()]:
+            utils.expand_inputdef(idef)
 
 
 signals.post_save.connect(post_article_revision_save, wiki_models.ArticleRevision)
