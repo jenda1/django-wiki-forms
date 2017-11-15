@@ -19,7 +19,6 @@ from . import utils
 
 import ipdb  # NOQA
 
-User = get_user_model()
 logger = get_task_logger(__name__)
 mime = magic.Magic(mime=True)
 
@@ -32,7 +31,7 @@ def evaluate_idef(idef_pk, owner_pk):
         logger.warning("evaluate of unknown idef {}".format(idef_pk))
         return
 
-    owner = User.objects.get(pk=owner_pk)
+    owner = get_user_model().objects.get(pk=owner_pk)
     logger.warning("evaluate {} (@{})".format(idef, owner))
     utils.evaluate_idef(idef, owner)
 
@@ -79,7 +78,7 @@ def create_image(api, image, scenario, args):  # NOQA
 
     for n, arg in enumerate(args if args else list()):
         if type(arg) == list and len(arg) > 0 and 'content' in arg[0]:
-            for m,f in enumerate(arg):
+            for m, f in enumerate(arg):
                 dfile += "COPY {}.{} /data/arg{}/{}\n".format(n, m, n, f['name'])
                 docker_add_file(tar, "{}.{}".format(n, m), f['content'].encode('utf-8'))
         else:

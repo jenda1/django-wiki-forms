@@ -8,7 +8,6 @@ from wiki.core.markdown import ArticleMarkdown
 from django.utils.translation import ugettext_lazy as _
 from wiki.models import Article
 from wiki.core import compat
-from django.contrib.auth import get_user_model
 from django.db import transaction
 
 import logging
@@ -17,8 +16,6 @@ import ipdb  # NOQA
 
 
 logger = logging.getLogger(__name__)
-
-User = get_user_model()
 
 
 class Input(models.Model):
