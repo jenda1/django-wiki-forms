@@ -115,7 +115,7 @@ class InputDocker(models.Model):
 
     # FIXME: add image name validators!!!!
     image = models.CharField(max_length=255)
-    scenario = models.CharField(max_length=255)
+    scenario = models.TextField()
     args = models.TextField(blank=True, null=True)
 
     container_id = models.CharField(max_length=64, unique=True, blank=True, null=True)

@@ -388,7 +388,7 @@ def update_input(article, name, owner, val=None, ts=None):
                 return
 
             logger.debug("update Input {} -> '{}'".format(i, trims(val)))
-            i.newer = i
+            i.newer_id = 0
             i.save()
 
             i.newer = models.Input.objects.create(article=article, name=name, owner=owner, val=val, created=ts)

@@ -41,4 +41,5 @@ class Migration(migrations.Migration):
         ),
         migrations.RunSQL("CREATE UNIQUE index django_wiki_forms_input_unique1 ON django_wiki_forms_input (article_id, name) WHERE owner_id IS NULL AND newer_id IS NULL;"),
         migrations.RunSQL("CREATE UNIQUE index django_wiki_forms_input_unique2 ON django_wiki_forms_input (article_id, name, owner_id) WHERE newer_id IS NULL;"),
+        migrations.RunSQL("INSERT INTO django_wiki_forms_input(id, created, name, article_id, owner_id) VALUES (0, to_timestamp(0), '', 1, 1);")
     ]
