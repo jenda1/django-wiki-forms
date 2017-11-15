@@ -4,21 +4,24 @@ from celery import shared_task
 from celery.utils.log import get_task_logger
 from django.contrib.auth import get_user_model
 
+import magic
 import docker
 import docker.tls
 import docker.errors
-import tarfile
 import io
 import re
 import json
+import tarfile
+import os
 
 from . import models
 from . import utils
 
+import ipdb  # NOQA
 
 User = get_user_model()
 logger = get_task_logger(__name__)
-# mime = magic.Magic(mime=True)
+mime = magic.Magic(mime=True)
 
 
 @shared_task
@@ -64,11 +67,34 @@ def remove_image(img):
     api.remove_image(img, force=True)
 
 
-def create_container(img):
-    api = docker_api()
+def create_image(api, image, scenario, args):  # NOQA
+    img = io.BytesIO()
+    tar = tarfile.TarFile(fileobj=img, mode="w")
+
+    dfile = "FROM {}\n".format(image)
+
+    dfile += "COPY scenario /data/scenario\n"
+    dfile += "RUN chmod a+x /data/scenario\n"
+    docker_add_file(tar, 'scenario', scenario.encode('utf-8'))
+
+    for n, arg in enumerate(args if args else list()):
+        if type(arg) == list and len(arg) > 0 and 'content' in arg[0]:
+            for m,f in enumerate(arg):
+                dfile += "COPY {}.{} /data/arg{}/{}\n".format(n, m, n, f['name'])
+                docker_add_file(tar, "{}.{}".format(n, m), f['content'].encode('utf-8'))
+        else:
+            dfile += "COPY {} /data/arg{}/json\n".format(n, n)
+            docker_add_file(tar, '{}'.format(n), json.dumps(arg).encode('utf-8'))
+
+    dfile += "RUN mkdir -p /data/out\n"
+
+    docker_add_file(tar, 'Dockerfile', dfile.encode('utf-8'))
+
+    tar.close()
+    img.seek(0)
+
     image_id = None
     err = None
-
     try:
         for line in api.build(fileobj=img, rm=True, custom_context=True):
             out = json.loads(line.decode('utf8'))
@@ -79,7 +105,7 @@ def create_container(img):
 
                 m = re_docker_comment_image.match(st)
                 if m:
-                    remove_image.apply_async(args=[m.group(1)], kwargs={}, countdown=10)
+                    # remove_image.apply_async(args=[m.group(1)], kwargs={}, countdown=10)
                     continue
 
                 m = re_docker_image.match(st)
@@ -90,30 +116,68 @@ def create_container(img):
             elif 'errorDetail' in out:
                 err = out['error']
 
-        if err is not None:
-            logger.error("docker run failed: {}".format(err))
-            return
-
-        if image_id:
-            return api.create_container(image_id)
-
-        logger.error("docker run failed: ?!?!")
     except docker.errors.APIError as ex:
         logger.error("docker run failed:  {}".format(ex.explanation))
+        return
 
+    if err is not None:
+        logger.error("docker run failed: {}".format(err))
+        return
+
+    if not image_id:
+        logger.error("docker run failed: ?!?!")
+        return
+
+    return image_id
 
 
 @shared_task
-def update_docker(docker_pk):
+def update_docker(idk_pk):
     try:
-        idk = models.InputDocker.objects.get(pk=docker_pk)
+        idk = models.InputDocker.objects.get(pk=idk_pk)
     except models.InputDefinition.DoesNotExist:
-        logger.warning("update_docker: unknown id {}".format(docker_pk))
+        logger.warning("update_docker: unknown id {}".format(idk_pk))
         return
 
     api = docker_api()
-    out = json.loads(api.inspect_containter(idk.container_id))
-    print(out)
+
+    cid = idk.container_id
+    out = api.logs(cid).decode('utf-8'),
+    info = api.inspect_container(cid)
+
+    data = {'type': 'docker', 'out': out}
+
+    if info['State']['Running']:
+        data['running'] = True
+
+        utils.update_idv(idk.value, data)
+        update_docker.apply_async(args=[idk_pk], kwargs={}, countdown=1)
+
+        return
+
+    api.wait(cid)
+    (t, s) = api.get_archive(cid, "/data/out/")
+    api.remove_container(cid)
+
+    data['running'] = False
+    data['exitcode'] = info['State']['ExitCode']
+    data['data'] = list()
+
+    tar = tarfile.open(fileobj=io.BytesIO(t.data), mode="r")
+
+    for m in tar.getmembers():
+        if not m.isfile():
+            continue
+
+        content = tar.extractfile(m).read()
+        data['data'].append({
+            'name': os.path.relpath(m.name, 'out'),
+            'size': m.size,
+            'content': content.decode('utf-8'),
+            'type': mime.from_buffer(content)})
+
+    utils.update_idv(idk.value, data)
+    idk.delete()
 
 
 @shared_task
@@ -124,33 +188,18 @@ def run_docker(docker_pk):
         logger.warning("run_docker: unknown id {}".format(docker_pk))
         return
 
-    img = io.BytesIO()
-    tar = tarfile.TarFile(fileobj=img, mode="w")
+    api = docker_api()
 
-    dfile = "FROM {}\n".format(idk.image)
-    dfile += "COPY scenario /data/scenario\n"
-    dfile += "ENTRYPOINT [ '/cenario' ]\n"
-    docker_add_file(tar, 'scenario', idk.scenario.encode('utf-8'))
-
-    if idk.args is not None:
-        dfile += "COPY args /data/args\n"
-        docker_add_file(tar, 'args', idk.args.encode('utf-8'))
-
-    docker_add_file(tar, 'Dockerfile', dfile.encode('utf-8'))
-
-    tar.close()
-    img.seek(0)
-
-    # with open("/tmp/aaa.tar",'wb') as out:
-    #    out.write(img.read())
-    #    img.seek(0)
-
-    container_id = create_container(img)
-
-    if container_id:
-        idk.containerId = container_id
-        idk.save()
-
-        update_docker.apply_async(args=[docker_pk], kwargs={}, countdown=1)
-    else:
+    image_id = create_image(api, idk.image, idk.scenario, json.loads(idk.args))
+    if not image_id:
         idk.delete()
+
+    idk.container_id = api.create_container(image=image_id, command="/data/scenario")['Id']
+    idk.save()
+
+    logger.info("start container {}".format(idk.container_id))
+    api.start(idk.container_id)
+
+    update_docker.apply_async(args=[idk.pk], kwargs={}, countdown=1)
+
+    return idk

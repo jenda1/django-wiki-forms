@@ -110,14 +110,24 @@ class ValueInputAllUpdates(Value):
 
 class ValueDocker(Value):
     def __init__(self, idef, owner, image, scenario, args):
-        self.docker, created = models.InputDocker.objects.get_or_create(
-            idef=idef, owner=owner if idef.per_user else None, image=image, scenario=scenario, args=json.dumps(args) if args else None)
+        self.idv, created = idef.values.get_or_create(
+            owner=owner if idef.per_user else None,
+            defaults={'val': None})
+
+        self.docker, created = models.InputDocker.objects.update_or_create(
+            value=self.idv,
+            defaults={
+                'image': image,
+                'scenario': scenario,
+                'args': json.dumps(args) if args else None})
+
         if created:
             tasks.run_docker.delay(self.docker.pk)
+
         return super(ValueDocker, self).__init__(None)
 
     def getVal(self):
-        return "" if self.docker.val is None else json.loads(self.docker.val)
+        return "" if self.idv.val is None else json.loads(self.idv.val)
 
 
 def evaluate_deps(expr):  # NOQA
@@ -211,7 +221,12 @@ def evaluate_expr(expr, owner, idefs):  # NOQA
 
         elif val == 'docker':
             assert n >= 2
-            return ValueDocker(idefs[0], owner, args[-1].getVal(), args[-2].getVal(), [x.getVal() for x in reversed(args[:-2])])
+            image = args[-1].getVal() if args[-1] else None
+            scenario = args[-2].getVal() if args[-2] else None
+            if image is None or scenario is None:
+                return None
+
+            return ValueDocker(idefs[0], owner, image, scenario, [x.getVal() for x in reversed(args[:-2])])
 
         elif val == 'all_updates':
             assert n == 2
@@ -365,17 +380,18 @@ def update_input(article, name, owner, val=None, ts=None):
 
     with transaction.atomic():
         i, created = models.Input.objects.get_or_create(
-            article=article, name=name, owner=owner,
-            defaults={'newer': None, 'val': val, 'created': ts})
+            article=article, name=name, owner=owner, newer=None,
+            defaults={'val': val, 'created': ts})
 
         if not created:
             if i.val == val:
                 return
 
             logger.debug("update Input {} -> '{}'".format(i, trims(val)))
-            i.newer = models.Input.objects.create(
-                article=article, name=name, owner=owner, val=val, created=ts)
+            i.newer = i
+            i.save()
 
+            i.newer = models.Input.objects.create(article=article, name=name, owner=owner, val=val, created=ts)
             i.save()
 
     # delete obsolete results
@@ -384,6 +400,25 @@ def update_input(article, name, owner, val=None, ts=None):
         notify(dep.idef.article, dep.idef.name, owner if dep.idef.per_user else None)
 
     notify(article, name, owner)
+
+def update_idv(idv, val):
+    val = json.dumps(val)
+
+    if idv.val == val:
+        return
+
+    logger.info("update {}: {} -> {}".format(idv, trims(idv.val), trims(val)))
+
+    idv.val = val
+    idv.save()
+
+    for dep in models.InputDependency.objects.filter(
+            article=idv.idef.article,
+            name=idv.idef.name):
+        dep.idef.values.filter(owner=idv.owner if dep.idef.per_user else None).delete()
+        notify(dep.idef.article, dep.idef.name, idv.owner if dep.idef.per_user else None)
+
+    notify(idv.idef.article, idv.idef.name, idv.owner if idv.idef.per_user else None)
 
 
 

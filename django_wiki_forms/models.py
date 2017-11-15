@@ -2,14 +2,14 @@ from __future__ import absolute_import, unicode_literals
 
 from django.db.models import signals
 from django.db import models
-from django.core.exceptions import ValidationError
 from wiki import models as wiki_models
 from wiki.decorators import disable_signal_for_loaddata
 from wiki.core.markdown import ArticleMarkdown
 from django.utils.translation import ugettext_lazy as _
-from wiki.models.pluginbase import ArticlePlugin
+from wiki.models import Article
 from wiki.core import compat
 from django.contrib.auth import get_user_model
+from django.db import transaction
 
 import logging
 from . import utils
@@ -21,13 +21,15 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 
-class Input(ArticlePlugin):
+class Input(models.Model):
+    article = models.ForeignKey(Article, on_delete=models.CASCADE, verbose_name=_('article'))
     owner = models.ForeignKey(
         compat.USER_MODEL, verbose_name=_('owner'),
-        null=True, related_name='owned_inputs',
+        related_name='owned_inputs',
         help_text=_('The author of the input. The owner always has both read access.'),
-        on_delete=models.SET_NULL)
+        on_delete=models.CASCADE)
 
+    created = models.DateTimeField(auto_now_add=True, verbose_name=_('created'),)
     created_by = models.ForeignKey(compat.USER_MODEL, null=True, related_name='created_inputs', on_delete=models.SET_NULL)
 
     name = models.CharField(max_length=28)
@@ -35,22 +37,11 @@ class Input(ArticlePlugin):
 
     newer = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL)
 
-    def can_write(self, user):
-        return user.pk == self.owner.pk  # FIXME: !!!
-
-    def can_delete(self, user):
-        return False
-
-    def validate_unique(self, exclude=None):
-        if self.newer and Input.objects.exclude(id=self.id).filter(newer=self.newer).exists():
-            raise ValidationError("data consistency error")
-
-        super(Input, self).validate_unique(exclude)
-
     class Meta:
         verbose_name = _('Input')
         verbose_name_plural = _('Inputs')
         get_latest_by = 'created'
+        unique_together = ('article', 'owner', 'name', 'newer')
 
     def __str__(self):
         return _('{}{}:{}{}: {}').format(
@@ -123,24 +114,17 @@ class InputDependency(models.Model):
 
 
 class InputDocker(models.Model):
-    idef = models.ForeignKey(InputDefinition, on_delete=models.CASCADE)
-    owner = models.ForeignKey(
-        compat.USER_MODEL, verbose_name=_('owner'),
-        blank=True, null=True,
-        on_delete=models.CASCADE)
+    value = models.OneToOneField(InputDefValue)
 
     # FIXME: add image name validators!!!!
     image = models.CharField(max_length=255)
     scenario = models.CharField(max_length=255)
     args = models.TextField(blank=True, null=True)
 
-    container_id = models.CharField(max_length=64, blank=True, null=True)
+    container_id = models.CharField(max_length=64, unique=True, blank=True, null=True)
 
-    val = models.TextField(blank=True, null=True)
-
-    class Meta:
-        unique_together = ('idef', 'owner', 'image', 'scenario', 'args')
-
+    def __str__(self):
+        return self.container_id[:12] if self.container_id else "$({})".format(self.value)
 
 
 
