@@ -131,7 +131,7 @@ def create_image(api, image, scenario, args):  # NOQA
 
 
 @shared_task
-def update_docker(idk_pk):
+def update_docker(idk_pk, countdown):
     try:
         idk = models.InputDocker.objects.get(pk=idk_pk)
     except models.InputDefinition.DoesNotExist:
@@ -146,17 +146,20 @@ def update_docker(idk_pk):
 
     data = {'type': 'docker', 'out': out}
 
-    if info['State']['Running']:
+    if countdown > 0 and info['State']['Running']:
         data['running'] = True
 
         utils.update_idv(idk.value, data)
-        update_docker.apply_async(args=[idk_pk], kwargs={}, countdown=1)
+        update_docker.apply_async(args=[idk_pk, countdown-1], kwargs={}, countdown=3)
 
         return
 
+    if info['State']['Running']:
+        api.kill(cid)
+
     api.wait(cid)
     (t, s) = api.get_archive(cid, "/data/out/")
-    api.remove_container(cid)
+    info = api.inspect_container(cid)
 
     data['running'] = False
     data['exitcode'] = info['State']['ExitCode']
@@ -176,6 +179,8 @@ def update_docker(idk_pk):
             'type': mime.from_buffer(content)})
 
     utils.update_idv(idk.value, data)
+
+    api.remove_container(cid)
     idk.delete()
 
 
@@ -199,6 +204,6 @@ def run_docker(docker_pk):
     logger.info("start container {}".format(idk.container_id))
     api.start(idk.container_id)
 
-    update_docker.apply_async(args=[idk.pk], kwargs={}, countdown=1)
+    update_docker.apply_async(args=[idk.pk, 10], kwargs={}, countdown=1)
 
     return idk
