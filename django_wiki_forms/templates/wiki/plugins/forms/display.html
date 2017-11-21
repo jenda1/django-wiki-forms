@@ -2,5 +2,7 @@
       {% if not preview %}
       data-id="{{ display_id }}"
       {% endif %}
+      {% if variant != 'group' %}
       data-listen="{% for f in fields %}{{f.article_pk}}:{{f.name}}{% if not forloop.last %},{% endif %}{% endfor %}"
+      {% endif %}
       ><i class="fa fa-spinner fa-spin" style="font-size:24px"></i></span>

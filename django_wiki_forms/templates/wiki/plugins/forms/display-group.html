@@ -1,0 +1,29 @@
+{% load wiki_forms_tags %}
+<table class="table table-condensed">
+  <thead>
+    <tr>
+      <th>User</th>
+      {% for f in data.fields %}
+      <th><a href="/{{f.article_pk}}/">{{ f.name }}</a></th>
+      {% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for u in data.users %}
+    <tr>
+      <th>{{u.first_name}} {{u.last_name}}</th>
+      {% for f in data.fields %}
+      <td>
+        <span class="dw-forms" data-id="{{ data.display_id }}" data-user="{{ u }}" data-field="{{forloop.counter}}"><i class="fa fa-spinner fa-spin" style="font-size:24px"></i></span>
+      </td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<script>
+  $('span[data-id={{data.display_id}}][data-user].dw-forms').each(function() {
+    wiki_display_data($(this));
+  });
+</script>
+

@@ -12,6 +12,8 @@ from wiki.core.markdown import ArticleMarkdown
 from wiki.models import Article
 from django.shortcuts import render
 from collections import defaultdict
+from django.contrib.auth import get_user_model
+
 # from . import models
 # from . import tasks
 from . import utils
@@ -129,9 +131,33 @@ class DisplayDataView(ArticleMixin, LoginRequiredMixin, View):
 
             c = dict(data=dict(data), columns=columns)
 
+        elif variant == 'group' and 'user' in request.GET and 'field' in request.GET:
+            try:
+                user = get_user_model().objects.get(email=request.GET['user'])
+            except get_user_model().DoesNotExist:
+                logger.warning('broken get request')
+                return HttpResponse(status=400)
+
+            if not user.groups.filter(name=fields[0]['name']).exists():
+                logger.warning('broken get request')
+                return HttpResponse(status=400)
+
+            f = fields[int(request.GET['field'])]
+            a = Article.objects.get(pk=f['article_pk'])
+            val = utils.get_input_val(a, f['name'], user)
+
+            c = dict(data=val)
+            variant = 'default'
+
+        elif variant == 'group':
+            users = get_user_model().objects.filter(groups__name=fields[0]['name']).order_by('last_name', 'first_name')
+
+            c = dict(data={'display_id': display_id, 'users': users, 'fields': fields[1:]})
+
         else:
             c = dict()
 
-        return render(request,
-                      "wiki/plugins/forms/display-{}.html".format(variant),
-                      context=c)
+        return render(
+            request,
+            "wiki/plugins/forms/display-{}.html".format(variant),
+            context=c)

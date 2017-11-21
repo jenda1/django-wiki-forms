@@ -57,6 +57,7 @@ class DisplayPreprocessor(markdown.preprocessors.Preprocessor):
         html = render_to_string(
             "wiki/plugins/forms/display.html",
             context=dict(
+                variant=m.group('variant'),
                 preview=self.markdown.preview,
                 display_id=len(self.display_fields),
                 fields=fields,

@@ -20,6 +20,7 @@ function wiki_input_get_data(field, fn) {
   });
 }
 
+
 function wiki_input_post_data(field, val) {
   $.ajax({
          url: "/" + ARTICLE_ID + "/plugin/forms/input/" + field.attr("data-id"),
@@ -34,14 +35,21 @@ function wiki_input_post_data(field, val) {
 
 
 function wiki_display_data(field) {
+  var url = "/" + ARTICLE_ID + "/plugin/forms/display/" + field.attr("data-id");
+
+  if (field.is('[data-user][data-field]')) {
+    url += "?" + $.param({ user:field.attr('data-user'), field:field.attr('data-field') });
+  }
+
   $.ajax({
-         url: "/" + ARTICLE_ID + "/plugin/forms/display/" + field.attr("data-id"),
+         url: url,
          type: 'GET',
          contentType: "text/html",
          success: function(data){
            field.html(data);
          },
          error: function(data){
+           field.text("#ERR");
            $('.notification-cnt').html("<b>!</b>");
          },
   });

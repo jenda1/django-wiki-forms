@@ -15,6 +15,7 @@ from ws4redis.redis_store import RedisMessage
 from django.contrib.auth.models import User
 import itertools
 
+#from . import parser
 import logging
 import ipdb  # NOQA
 
@@ -128,6 +129,8 @@ class ValueDocker(Value):
 
     def getVal(self):
         return "" if self.idv.val is None else json.loads(self.idv.val)
+
+
 
 
 def evaluate_deps(expr):  # NOQA
@@ -271,7 +274,7 @@ def notify(article, name, owner):
 def evaluate_idef(idef, owner, idefs=list()):  # NOQA
     assert idef not in idefs
 
-    idv, created = idef.values.update_or_create(
+    idv, created = idef.values.get_or_create(
         owner=owner if idef.per_user else None,
         defaults={'val': None})
 
@@ -426,23 +429,23 @@ def update_inputdef(article, name, expr):
     expr_json = json.dumps(expr)
 
     try:
-        curr = models.InputDefinition.objects.get(article=article, name=name)
-        if curr.expr == expr_json:
-            return curr
+        idef = models.InputDefinition.objects.get(article=article, name=name)
+        if idef.expr == expr_json:
+            return idef
 
         logger.info("updated idef {}:{}".format(article.pk, name))
-
-        curr.delete()
     except models.InputDefinition.DoesNotExist:
         logger.info("create idef {}:{}".format(article.pk, name))
         pass
 
     deps = evaluate_deps(expr)
+
     per_user = False
     for a, n, p in deps:
         per_user |= p
 
     with transaction.atomic():
+        models.InputDefinition.objects.filter(article=article, name=name).delete()
         idef = models.InputDefinition.objects.create(article=article, name=name, expr=expr_json, per_user=per_user)
 
         for article_pk, name, per_user in deps:
