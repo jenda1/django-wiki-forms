@@ -35,6 +35,7 @@ class InputsPlugin(BasePlugin):
         js = [
             'wiki/js/dw-forms.js',
             'wiki/js/ws4redis.js',
+            'wiki/js/jquery.ajaxQueue.js',
         ]
 
         css = {

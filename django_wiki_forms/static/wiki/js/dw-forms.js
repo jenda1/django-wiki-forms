@@ -41,7 +41,7 @@ function wiki_display_data(field) {
     url += "?" + $.param({ user:field.attr('data-user'), field:field.attr('data-field') });
   }
 
-  $.ajax({
+  $.ajaxQueue({
          url: url,
          type: 'GET',
          contentType: "text/html",
