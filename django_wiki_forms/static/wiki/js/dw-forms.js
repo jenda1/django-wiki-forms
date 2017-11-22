@@ -62,9 +62,8 @@ function receiveMessage(msg) {
   $('span[data-listen].dw-forms').each(function(n,e) {
     $(e).attr('data-listen').split(",").some(function(i) {
       var l = i.split(':');
-      if (l[0] == m[0] &&
-          l[1] == m[1] &&
-          (m[2] == '' || m[2] == USER_ID)) {
+      if (l[0] == m[0] && l[1] == m[1] && 
+          (m[2] == '' || m[2] == (l[2] === undefined ? USER_ID : l[2]))) {
         wiki_display_data($(e));
         return true;
       } else {

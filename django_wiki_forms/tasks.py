@@ -66,26 +66,19 @@ def remove_image(img):
     api.remove_image(img, force=True)
 
 
-def create_image(api, image, scenario, args):  # NOQA
+def create_image(api, image, args):  # NOQA
     img = io.BytesIO()
     tar = tarfile.TarFile(fileobj=img, mode="w")
 
     dfile = "FROM {}\n".format(image)
-
-    dfile += "COPY scenario /data/scenario\n"
-    dfile += "RUN chmod a+x /data/scenario\n"
-    docker_add_file(tar, 'scenario', scenario.encode('utf-8'))
-
     for n, arg in enumerate(args if args else list()):
         if type(arg) == list and len(arg) > 0 and 'content' in arg[0]:
             for m, f in enumerate(arg):
                 dfile += "COPY {}.{} /data/arg{}/{}\n".format(n, m, n, f['name'])
                 docker_add_file(tar, "{}.{}".format(n, m), f['content'].encode('utf-8'))
         else:
-            dfile += "COPY {} /data/arg{}/json\n".format(n, n)
+            dfile += "COPY {} /data/arg{}.json\n".format(n, n)
             docker_add_file(tar, '{}'.format(n), json.dumps(arg).encode('utf-8'))
-
-    dfile += "RUN mkdir -p /data/out\n"
 
     docker_add_file(tar, 'Dockerfile', dfile.encode('utf-8'))
 
@@ -158,7 +151,7 @@ def update_docker(idk_pk, countdown):
         api.kill(cid)
 
     api.wait(cid)
-    (t, s) = api.get_archive(cid, "/data/out/")
+    (t, s) = api.get_archive(cid, "/output/")
     info = api.inspect_container(cid)
 
     data['running'] = False
@@ -173,7 +166,7 @@ def update_docker(idk_pk, countdown):
 
         content = tar.extractfile(m).read()
         data['data'].append({
-            'name': os.path.relpath(m.name, 'out'),
+            'name': m.name,
             'size': m.size,
             'content': content.decode('utf-8'),
             'type': mime.from_buffer(content)})
@@ -194,11 +187,11 @@ def run_docker(docker_pk):
 
     api = docker_api()
 
-    image_id = create_image(api, idk.image, idk.scenario, json.loads(idk.args))
+    image_id = create_image(api, idk.image, json.loads(idk.args) if idk.args else None)
     if not image_id:
         idk.delete()
 
-    idk.container_id = api.create_container(image=image_id, command="/data/scenario")['Id']
+    idk.container_id = api.create_container(image=image_id, network_disabled=True)['Id']
     idk.save()
 
     logger.info("start container {}".format(idk.container_id))

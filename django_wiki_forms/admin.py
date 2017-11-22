@@ -33,7 +33,7 @@ class InputDefValueAdmin(admin.ModelAdmin):
             ]
 
 class InputDockerAdmin(admin.ModelAdmin):
-    list_display = ('pk', 'value', 'image', 'scenario', 'args', 'container_id')
+    list_display = ('pk', 'value', 'image', 'args', 'container_id')
 
 
 admin.site.register(models.Input, InputAdmin)

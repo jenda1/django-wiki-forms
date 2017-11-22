@@ -14,7 +14,11 @@
       <th>{{u.first_name}} {{u.last_name}}</th>
       {% for f in data.fields %}
       <td>
-        <span class="dw-forms" data-id="{{ data.display_id }}" data-user="{{ u }}" data-field="{{forloop.counter}}"><i class="fa fa-spinner fa-spin" style="font-size:24px"></i></span>
+        <span class="dw-forms"
+              data-id="{{ data.display_id }}"
+              data-listen="{{f.article_pk}}:{{f.name}}:{{u.id}}"
+              data-user="{{ u }}"
+              data-field="{{forloop.counter}}"><i class="fa fa-spinner fa-spin"></i></span>
       </td>
       {% endfor %}
     </tr>

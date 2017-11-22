@@ -110,7 +110,7 @@ class ValueInputAllUpdates(Value):
 
 
 class ValueDocker(Value):
-    def __init__(self, idef, owner, image, scenario, args):
+    def __init__(self, idef, owner, image, args):
         self.idv, created = idef.values.get_or_create(
             owner=owner if idef.per_user else None,
             defaults={'val': None})
@@ -119,7 +119,6 @@ class ValueDocker(Value):
             value=self.idv,
             defaults={
                 'image': image,
-                'scenario': scenario,
                 'args': json.dumps(args) if args else None})
 
         if created:
@@ -166,7 +165,7 @@ def evaluate_deps(expr):  # NOQA
             return list(itertools.chain.from_iterable(args))
 
         elif val == 'docker':
-            assert n >= 2
+            assert n >= 1
             return list(itertools.chain.from_iterable(args))
 
         elif val == 'all_updates':
@@ -223,13 +222,12 @@ def evaluate_expr(expr, owner, idefs):  # NOQA
                 return args[1]
 
         elif val == 'docker':
-            assert n >= 2
+            assert n >= 1
             image = args[-1].getVal() if args[-1] else None
-            scenario = args[-2].getVal() if args[-2] else None
-            if image is None or scenario is None:
+            if image is None:
                 return None
 
-            return ValueDocker(idefs[0], owner, image, scenario, [x.getVal() for x in reversed(args[:-2])])
+            return ValueDocker(idefs[0], owner, image, [x.getVal() for x in reversed(args[:-1])])
 
         elif val == 'all_updates':
             assert n == 2
