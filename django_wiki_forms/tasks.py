@@ -72,13 +72,8 @@ def create_image(api, image, args):  # NOQA
 
     dfile = "FROM {}\n".format(image)
     for n, arg in enumerate(args if args else list()):
-        if type(arg) == list and len(arg) > 0 and 'content' in arg[0]:
-            for m, f in enumerate(arg):
-                dfile += "COPY {}.{} /data/arg{}/{}\n".format(n, m, n, f['name'])
-                docker_add_file(tar, "{}.{}".format(n, m), f['content'].encode('utf-8'))
-        else:
-            dfile += "COPY {} /data/arg{}.json\n".format(n, n)
-            docker_add_file(tar, '{}'.format(n), json.dumps(arg).encode('utf-8'))
+        dfile += "COPY arg{}.json /data/arg{}.json\n".format(n, n)
+        docker_add_file(tar, 'arg{}.json'.format(n), json.dumps(arg).encode('utf-8'))
 
     docker_add_file(tar, 'Dockerfile', dfile.encode('utf-8'))
 
